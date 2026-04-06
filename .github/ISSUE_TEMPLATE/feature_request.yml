@@ -1,0 +1,31 @@
+name: "Feature Request"
+description: "Sugerir una nueva funcionalidad o mejora"
+title: "[FEATURE] <Nombre de la funcionalidad>"
+labels: ["enhancement"]
+assignees: []
+body:
+  - type: markdown
+    attributes:
+      value: |
+        ¿Tienes una gran idea para PoshBuddy? ¡Cuéntanos más!
+  - type: textarea
+    id: motivation
+    attributes:
+      label: ¿Qué problema resuelve esta funcionalidad?
+      description: Describe el problema o la necesidad que motiva esta sugerencia.
+      placeholder: "Ej: Navegar por cientos de temas es lento..."
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Descripción de la Funcionalidad
+      description: Explica cómo te imaginas que funcionaría.
+      placeholder: "Ej: Añadir soporte para las teclas Page Up/Down..."
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternativas Consideradas
+      description: ¿Hay otras formas de lograr esto?

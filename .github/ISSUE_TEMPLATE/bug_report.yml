@@ -1,0 +1,46 @@
+name: "Bug Report"
+description: "Reportar un error en PoshBuddy"
+title: "[BUG] <Resumen del problema>"
+labels: ["bug"]
+assignees: []
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Gracias por tomarte el tiempo para reportar un error. ¡Tu ayuda es invaluable para mejorar PoshBuddy!
+  - type: textarea
+    id: description
+    attributes:
+      label: Descripción del Error
+      description: Proporciona una descripción clara y concisa de lo que sucede.
+      placeholder: "Ej: El script añade múltiples líneas al $PROFILE..."
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Pasos para Reproducir
+      description: ¿Cómo podemos ver el error por nosotros mismos?
+      placeholder: |
+        1. Ejecutar PoshBuddy.ps1
+        2. Seleccionar un tema
+        3. Presionar Enter para aplicar
+        4. Repetir 3 veces
+    validations:
+      required: true
+  - type: textarea
+    id: expected-behavior
+    attributes:
+      label: Comportamiento Esperado
+      description: ¿Qué debería haber pasado?
+      placeholder: "Ej: Solo debería haber una línea de inicialización en el perfil."
+    validations:
+      required: true
+  - type: input
+    id: environment
+    attributes:
+      label: Entorno
+      description: "Versión de PowerShell, Versión de Windows, Versión de Oh My Posh"
+      placeholder: "Ej: PowerShell 7.4.1, Windows 11, OMP v19.14.2"
+    validations:
+      required: true

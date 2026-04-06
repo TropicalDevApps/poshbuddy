@@ -6,17 +6,23 @@
     Currently in Pre-Alpha.
 #>
 $PoshBuddy = @{
-    Version = "0.0.1-alpha.10"
+    Version = "0.0.1-alpha.11"
     ThemesDir = Join-Path $HOME ".poshthemes"
     Profile = if ($PROFILE) { $PROFILE } else { Join-Path $HOME "Documents\PowerShell\Microsoft.PowerShell_profile.ps1" }
+}
+
+if (!(Get-Command oh-my-posh -ErrorAction SilentlyContinue)) {
+    Write-Host "ERROR: 'oh-my-posh' no detectado. Instálalo primero." -ForegroundColor Red
+    exit
 }
 
 if (!(Test-Path $PoshBuddy.ThemesDir)) { New-Item -ItemType Directory -Path $PoshBuddy.ThemesDir -Force }
 
 function Draw-Box ($x, $y, $w, $h, $title, $color) {
+    if ($w -le 0 -or $h -le 0) { return }
     $pos = $Host.UI.RawUI.CursorPosition
     $pos.X = $x; $pos.Y = $y; $Host.UI.RawUI.CursorPosition = $pos
-    Write-Host ("┌─ $title " + ("─" * ($w - $title.Length - 5)) + "┐") -ForegroundColor $color
+    Write-Host ("┌─ $title " + ("─" * [Math]::Max(0, ($w - $title.Length - 5))) + "┐") -ForegroundColor $color
     for ($i = 1; $i -lt $h - 1; $i++) {
         $pos.Y = $y + $i; $Host.UI.RawUI.CursorPosition = $pos
         Write-Host "│" -ForegroundColor $color
@@ -24,7 +30,7 @@ function Draw-Box ($x, $y, $w, $h, $title, $color) {
         Write-Host "│" -ForegroundColor $color
     }
     $pos.Y = $y + $h - 1; $Host.UI.RawUI.CursorPosition = $pos
-    Write-Host ("└" + ("─" * ($w - 2)) + "┘") -ForegroundColor $color
+    Write-Host ("└" + ("─" * [Math]::Max(0, ($w - 2))) + "┘") -ForegroundColor $color
 }
 
 function Get-Themes {
@@ -34,10 +40,15 @@ function Get-Themes {
 }
 
 $allThemes = Get-Themes; $index = 0; $filter = ""; $isRunning = $true
+$lastWin = $Host.UI.RawUI.WindowSize
 [Console]::Clear()
 
 while ($isRunning) {
     $win = $Host.UI.RawUI.WindowSize; $w = $win.Width; $h = $win.Height
+    if ($win.Width -ne $lastWin.Width -or $win.Height -ne $lastWin.Height) {
+        [Console]::Clear(); $lastWin = $win
+    }
+    
     $leftW = [int]($w * 0.30); $rightW = $w - $leftW - 3; $panelH = $h - 5
     $filtered = if ($filter) { $allThemes | Where-Object { $_ -like "*$filter*" } } else { $allThemes }
     $total = $filtered.Count
@@ -53,19 +64,24 @@ while ($isRunning) {
             $isSel = ($i -eq $index)
             $color = if ($isSel) { "Green" } else { "Gray" }
             $text = if ($isSel) { "> " + $filtered[$i] } else { "  " + $filtered[$i] }
-            Write-Host ($text.PadRight($leftW-4).Substring(0,$leftW-4)) -ForegroundColor $color
+            if ($text.Length -gt ($leftW-4)) { $text = $text.Substring(0, $leftW-4) }
+            Write-Host ($text.PadRight($leftW-4)) -ForegroundColor $color
         } else { Write-Host (" " * ($leftW-4)) }
     }
 
     # Preview
     if ($total -gt 0) {
         $theme = $filtered[$index]; $localPath = Join-Path $PoshBuddy.ThemesDir $theme
-        if (!(Test-Path $localPath)) { Invoke-WebRequest -Uri "https://raw.githubusercontent.com/JanDeDobbeleer/oh-my-posh/main/themes/$theme" -OutFile $localPath -ErrorAction SilentlyContinue }
+        if (!(Test-Path $localPath)) { 
+            $p = $Host.UI.RawUI.CursorPosition; $p.X = $leftW + 4; $p.Y = 2; $Host.UI.RawUI.CursorPosition = $p
+            Write-Host "Descargando..." -ForegroundColor Cyan
+            Invoke-WebRequest -Uri "https://raw.githubusercontent.com/JanDeDobbeleer/oh-my-posh/main/themes/$theme" -OutFile $localPath -ErrorAction SilentlyContinue 
+        }
         
         # Limpieza y Render del Prompt
         for ($j = 2; $j -lt $panelH - 1; $j++) {
             $p = $Host.UI.RawUI.CursorPosition; $p.X = $leftW + 3; $p.Y = $j; $Host.UI.RawUI.CursorPosition = $p
-            Write-Host (" " * ($rightW - 4))
+            Write-Host (" " * [Math]::Max(0, ($rightW - 4)))
         }
         $p = $Host.UI.RawUI.CursorPosition; $p.X = $leftW + 4; $p.Y = 4; $Host.UI.RawUI.CursorPosition = $p
         oh-my-posh print primary --config $localPath --shell pwsh | Out-String | Write-Host -NoNewline
@@ -86,7 +102,16 @@ while ($isRunning) {
             Write-Host "¿Aplicar $($filtered[$index])? (s/n): " -NoNewline
             if ((Read-Host) -eq "s") {
                 $line = "oh-my-posh init pwsh --config '$localPath' | Invoke-Expression"
-                Add-Content -Path $PoshBuddy.Profile -Value "`n$line"
+                if (!(Test-Path $PoshBuddy.Profile)) { 
+                    New-Item -ItemType File -Path $PoshBuddy.Profile -Force | Out-Null 
+                }
+                $content = Get-Content $PoshBuddy.Profile
+                if ($content -match "oh-my-posh init") {
+                    $newContent = $content | ForEach-Object { if ($_ -match "oh-my-posh init") { $line } else { $_ } }
+                    $newContent | Set-Content $PoshBuddy.Profile
+                } else {
+                    Add-Content -Path $PoshBuddy.Profile -Value "`n$line"
+                }
                 Write-Host "¡Exito! Reinicia la terminal." -ForegroundColor Green; $isRunning = $false
             } else { [Console]::Clear() }
         }
@@ -98,3 +123,4 @@ while ($isRunning) {
         }
     }
 }
+
