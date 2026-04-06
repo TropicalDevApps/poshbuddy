@@ -68,6 +68,7 @@ function Save-Theme ($themeName, $localPath) {
 }
 
 function Apply-Theme ($themePath) {
+    if (!$themePath -or !(Test-Path $themePath)) { return }
     $line = "oh-my-posh init pwsh --config '$themePath' | Invoke-Expression"
     if (!(Test-Path $PoshBuddy.Profile)) { New-Item -ItemType File -Path $PoshBuddy.Profile -Force | Out-Null }
     
@@ -155,7 +156,13 @@ function Start-PoshBuddy {
             $debug = oh-my-posh debug --config $localPath | Out-String
             $p.Y = 9; $Host.UI.RawUI.CursorPosition = $p
             ($debug -split "`n") | Where-Object { $_ -match "Run duration" } | Write-Host -ForegroundColor Cyan
+        } else {
+            $localPath = $null
+            Clear-Panel ($leftW + 2) 1 ($rightW - 2) ($panelH - 2)
+            $p = $Host.UI.RawUI.CursorPosition; $p.X = $leftW + 4; $p.Y = 4; $Host.UI.RawUI.CursorPosition = $p
+            Write-Host "No se encontraron temas con el filtro: '$filter'" -ForegroundColor DarkGray
         }
+
         $keyInfo = $Host.UI.RawUI.ReadKey("NoEcho,IncludeKeyDown")
         $vKey = $keyInfo.VirtualKeyCode
         switch ($vKey) {
@@ -164,12 +171,14 @@ function Start-PoshBuddy {
             38 { $index = [Math]::Max(0, $index - 1) }
             40 { $index = [int][Math]::Min($total - 1, $index + 1) }
             13 { 
-                $p = $Host.UI.RawUI.CursorPosition; $p.X = 0; $p.Y = $panelH + 1; $Host.UI.RawUI.CursorPosition = $p
-                Write-Host "¿Aplicar $($filtered[$index])? (s/n): " -NoNewline
-                if ((Read-Host) -eq "s") {
-                    Apply-Theme $localPath
-                    Write-Host "¡Exito! Reinicia la terminal." -ForegroundColor Green; $isRunning = $false
-                } else { [Console]::Clear() }
+                if ($total -gt 0 -and $null -ne $filtered[$index]) {
+                    $p = $Host.UI.RawUI.CursorPosition; $p.X = 0; $p.Y = $panelH + 1; $Host.UI.RawUI.CursorPosition = $p
+                    Write-Host "¿Aplicar $($filtered[$index])? (s/n): " -NoNewline
+                    if ((Read-Host) -eq "s") {
+                        Apply-Theme $localPath
+                        Write-Host "¡Exito! Reinicia la terminal." -ForegroundColor Green; $isRunning = $false
+                    } else { [Console]::Clear() }
+                }
             }
             27 { $isRunning = $false }
             8  { if ($filter.Length -gt 0) { $filter = $filter.Substring(0, $filter.Length - 1); $index = 0 }; [Console]::Clear() }
