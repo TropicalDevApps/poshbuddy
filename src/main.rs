@@ -72,10 +72,9 @@ impl App {
 
         let mut new_content = Vec::new();
         let mut found = false;
-        let re = regex::Regex::new(r"(?i)^oh-my-posh init .*").unwrap();
 
         for line in content.lines() {
-            if re.is_match(line) {
+            if line.to_lowercase().starts_with("oh-my-posh init") {
                 new_content.push(config_line.clone());
                 found = true;
             } else {
