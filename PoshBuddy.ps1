@@ -57,8 +57,9 @@ function Apply-Theme ($themePath) {
     if (!(Test-Path $PoshBuddy.Profile)) { New-Item -ItemType File -Path $PoshBuddy.Profile -Force | Out-Null }
     
     $content = Get-Content $PoshBuddy.Profile
-    if ($content -match "oh-my-posh init") {
-        $newContent = $content | ForEach-Object { if ($_ -match "oh-my-posh init") { $line } else { $_ } }
+    $pattern = "^oh-my-posh init .*"
+    if ($content -match $pattern) {
+        $newContent = $content | ForEach-Object { if ($_ -match $pattern) { $line } else { $_ } }
         $newContent | Set-Content $PoshBuddy.Profile
     } else {
         Add-Content -Path $PoshBuddy.Profile -Value "`n$line"
