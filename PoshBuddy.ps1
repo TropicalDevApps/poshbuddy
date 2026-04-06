@@ -23,3 +23,6 @@ function Draw-UIBox ($x, $y, $w, $h, $title, $color) {
     $pos.Y = $y + $h - 1; $Host.UI.RawUI.CursorPosition = $pos
     Write-Host ("└" + ("─" * ($w - 2)) + "┘") -ForegroundColor $color
 }
+function Wait-ForKey {
+    return $Host.UI.RawUI.ReadKey("NoEcho,IncludeKeyDown")
+}
