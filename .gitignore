@@ -2,6 +2,9 @@
 *.log
 .history/
 target/
-.gemini/
 .vscode/
 Cargo.lock
+# gemini-cli settings
+.gemini/
+# GitHub App credentials
+gha-creds-*.json
