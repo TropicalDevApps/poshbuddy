@@ -25,12 +25,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut terminal = Terminal::new(backend)?;
 
     let mut app = App::new();
-    let (tx, mut rx) = mpsc::channel(10); // Changed to 32 in Phase 3
+    let (tx, mut rx) = mpsc::channel(32); // Increased to 32 to prevent backpressure
 
     let themes_dir = app.themes_dir.clone();
     tokio::spawn(setup_app_task(tx.clone(), themes_dir));
 
     loop {
+        if app.state == AppState::Loading {
+            app.spinner_tick += 1;
+        }
         terminal.draw(|f| ui(f, &mut app))?;
 
         while let Ok(msg) = rx.try_recv() {

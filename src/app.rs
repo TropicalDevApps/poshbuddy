@@ -1,4 +1,3 @@
-use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 use tokio::sync::mpsc;
 use std::fs;
@@ -96,11 +95,6 @@ impl App {
             }
         }
 
-        if std::env::var("TERMINAL_EMULATOR").is_ok() || std::env::var("WT_SESSION").is_ok() {
-            // Windows Terminal o emuladores modernos suelen tener fuentes Nerd configuradas
-            // pero vamos a intentar ser más precisos con el comando de registro si es Windows
-        }
-
         // 2. En Windows, intentar detectar la fuente via Registry
         let cmd = if cfg!(windows) {
             "powershell"
@@ -174,7 +168,8 @@ impl App {
         if let Some(parent) = self.profile_path.parent() {
             fs::create_dir_all(parent)?;
         }
-        fs::write(&self.profile_path, new_content.join("\n"))?;
+        let line_ending = if cfg!(windows) { "\r\n" } else { "\n" };
+        fs::write(&self.profile_path, new_content.join(line_ending))?;
         Ok(())
     }
 

@@ -39,7 +39,6 @@ pub fn ui(f: &mut ratatui::Frame, app: &mut App) {
 
             let spinner_chars = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
             let char = spinner_chars[app.spinner_tick % spinner_chars.len()];
-            app.spinner_tick += 1; // Note: We will move this to main.rs in Phase 3
 
             let loading_text = format!("{} Configurando PoshBuddy...", char);
             f.render_widget(Paragraph::new(loading_text).alignment(Alignment::Center).style(Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)), chunks[1]);
