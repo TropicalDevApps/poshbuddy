@@ -236,7 +236,8 @@ impl App {
 
             match output {
                 Ok(out) => {
-                    let preview = String::from_utf8_lossy(&out.stdout).to_string();
+                    let raw = String::from_utf8_lossy(&out.stdout).to_string();
+                    let preview = format!(" {}", raw.trim_end());
                     let _ = tx.send(AppMessage::ThemePreviewLoaded { 
                         theme: theme_name_cloned, 
                         preview 
