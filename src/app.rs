@@ -17,6 +17,7 @@ pub enum AppState {
     DependencyMissing,
     InstallingDependency { current_action: String, log: Vec<String> },
     Installing(String),
+    Success(String),
     Error(String),
 }
 

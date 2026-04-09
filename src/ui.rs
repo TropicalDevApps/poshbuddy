@@ -75,6 +75,26 @@ pub fn ui(f: &mut ratatui::Frame, app: &mut App) {
             let log_text = log.join("\n");
             f.render_widget(Paragraph::new(log_text).block(Block::default().borders(Borders::ALL).title(" Log de Instalación ")).style(Style::default().fg(Color::Gray)), chunks[1]);
         }
+        AppState::Success(theme) => {
+            let area = main_layout[1];
+            let chunks = Layout::default()
+                .direction(Direction::Vertical)
+                .constraints([Constraint::Percentage(30), Constraint::Length(10), Constraint::Percentage(30)])
+                .split(area);
+
+            let msg = format!(
+                "\n   🎉 ¡TEMA ACTIVADO CON ÉXITO!\n\n   El tema '{}' se ha configurado en tus perfiles.\n\n   Para ver los cambios, por favor:\n   1. Cierra esta terminal.\n   2. Abre una nueva ventana de PowerShell.\n\n   (O ejecuta: '. $PROFILE' en tu sesión actual)\n\n   [Presiona cualquier tecla para salir]",
+                theme
+            );
+
+            f.render_widget(
+                Paragraph::new(msg)
+                    .alignment(Alignment::Center)
+                    .block(Block::default().borders(Borders::ALL).title(" POSHBUDDY FEEDBACK "))
+                    .style(Style::default().fg(Color::Green).add_modifier(Modifier::BOLD)),
+                chunks[1]
+            );
+        }
         AppState::Main => {
             let chunks = Layout::default()
                 .direction(Direction::Horizontal)

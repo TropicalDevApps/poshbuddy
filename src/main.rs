@@ -100,6 +100,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     }
                 }
 
+                if let AppState::Success(_) = app.state {
+                    break;
+                }
+
                 if app.state == AppState::Main {
                     match key.code {
                         KeyCode::Tab => {
@@ -138,7 +142,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                                 if let Some(selected) = app.list_state.selected() {
                                     if let Some(theme) = filtered.get(selected) {
                                         app.apply_theme(theme)?;
-                                        break;
+                                        app.state = AppState::Success(theme.clone());
                                     }
                                 }
                             } else {
