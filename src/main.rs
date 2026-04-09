@@ -65,13 +65,40 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     app.state = AppState::Main;
                     app.has_nerd_font = true; // Asumimos éxito tras instalar
                 }
+                AppMessage::InstallProgress { line } => {
+                    if let AppState::InstallingDependency { log, .. } = &mut app.state {
+                        log.push(line.clone());
+                        if log.len() > 100 { log.remove(0); }
+                        app.state = AppState::InstallingDependency { 
+                            current_action: line, 
+                            log: log.clone() 
+                        };
+                    } else {
+                        app.state = AppState::InstallingDependency { 
+                            current_action: line.clone(), 
+                            log: vec![line] 
+                        };
+                    }
+                }
+                AppMessage::InstallFinished => {
+                    app.state = AppState::Loading;
+                    let themes_dir = app.themes_dir.clone();
+                    tokio::spawn(setup_app_task(tx.clone(), themes_dir));
+                }
                 AppMessage::Error(e) => { app.state = AppState::Error(e); }
             }
         }
 
         if event::poll(std::time::Duration::from_millis(50))? {
             if let Event::Key(key) = event::read()? {
+                if key.kind != event::KeyEventKind::Press { continue; }
                 if key.code == KeyCode::Char('q') || key.code == KeyCode::Esc { break; }
+
+                if app.state == AppState::DependencyMissing {
+                    if key.code == KeyCode::Enter {
+                        app.install_omp(tx.clone());
+                    }
+                }
 
                 if app.state == AppState::Main {
                     match key.code {

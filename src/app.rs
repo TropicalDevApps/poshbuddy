@@ -14,6 +14,8 @@ pub enum ActiveView {
 pub enum AppState {
     Loading,
     Main,
+    DependencyMissing,
+    InstallingDependency { current_action: String, log: Vec<String> },
     Installing(String),
     Error(String),
 }
@@ -28,6 +30,8 @@ pub enum AppMessage {
     FontsLoaded(Vec<FontAsset>),
     ThemePreviewLoaded { theme: String, preview: String },
     FontInstalled(String),
+    InstallProgress { line: String },
+    InstallFinished,
     Error(String),
 }
 
@@ -69,7 +73,7 @@ impl App {
 
         let has_nerd_font = Self::check_nerd_font();
 
-        App {
+        let mut app = App {
             state: AppState::Loading,
             active_view: ActiveView::Themes,
             themes: Vec::new(),
@@ -84,7 +88,22 @@ impl App {
             spinner_tick: 0,
             has_nerd_font,
             theme_preview: String::new(),
+        };
+
+        if !app.check_omp_installed() {
+            app.state = AppState::DependencyMissing;
         }
+
+        app
+    }
+
+    pub fn check_omp_installed(&self) -> bool {
+        let cmd = if cfg!(windows) { "where.exe" } else { "which" };
+        std::process::Command::new(cmd)
+            .arg("oh-my-posh")
+            .output()
+            .map(|o| o.status.success())
+            .unwrap_or(false)
     }
 
     pub fn check_nerd_font() -> bool {
@@ -206,6 +225,8 @@ impl App {
         tokio::spawn(async move {
             let output = tokio::process::Command::new(cmd)
                 .args(["print", "primary", "--config", &theme_path.to_string_lossy(), "--shell", "pwsh"])
+                .env_remove("POSH_THEME")
+                .env_remove("OH_MY_POSH_THEME")
                 .output()
                 .await;
 
@@ -222,6 +243,51 @@ impl App {
                         theme: theme_name_cloned, 
                         preview: format!("Error: {}", e) 
                     }).await;
+                }
+            }
+        });
+    }
+
+    pub fn install_omp(&self, tx: mpsc::Sender<AppMessage>) {
+        tokio::spawn(async move {
+            let _ = tx.send(AppMessage::InstallProgress { line: "Iniciando instalación de Oh My Posh...".to_string() }).await;
+            
+            let child = if cfg!(windows) {
+                tokio::process::Command::new("winget")
+                    .args(["install", "JanDeDobbeleer.OhMyPosh", "--accept-package-agreements", "--accept-source-agreements"])
+                    .stdout(std::process::Stdio::piped())
+                    .stderr(std::process::Stdio::piped())
+                    .spawn()
+            } else {
+                // Fallback para otros sistemas (brew)
+                tokio::process::Command::new("brew")
+                    .args(["install", "oh-my-posh"])
+                    .stdout(std::process::Stdio::piped())
+                    .stderr(std::process::Stdio::piped())
+                    .spawn()
+            }.map_err(|e| e.to_string());
+
+            match child {
+                Ok(mut child) => {
+                    use tokio::io::{AsyncBufReadExt, BufReader};
+                    let stdout = child.stdout.take().unwrap();
+                    let mut reader = BufReader::new(stdout).lines();
+
+                    while let Ok(Some(line)) = reader.next_line().await {
+                        let _ = tx.send(AppMessage::InstallProgress { line }).await;
+                    }
+
+                    match child.wait().await {
+                        Ok(status) if status.success() => {
+                            let _ = tx.send(AppMessage::InstallFinished).await;
+                        }
+                        _ => {
+                            let _ = tx.send(AppMessage::Error("Error en la instalación de Winget".to_string())).await;
+                        }
+                    }
+                }
+                Err(e) => {
+                    let _ = tx.send(AppMessage::Error(format!("No se pudo iniciar el instalador: {}", e))).await;
                 }
             }
         });

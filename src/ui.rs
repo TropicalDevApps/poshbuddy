@@ -56,6 +56,25 @@ pub fn ui(f: &mut ratatui::Frame, app: &mut App) {
             let area = main_layout[1];
             f.render_widget(Paragraph::new(format!("Error: {}\n\nPresiona 'q' para salir.", msg)).alignment(Alignment::Center).block(Block::default().borders(Borders::ALL).title("ERROR")).style(Style::default().fg(Color::Red)), area);
         }
+        AppState::DependencyMissing => {
+            let area = main_layout[1];
+            let msg = "\n   ⚠️  Oh My Posh no está instalado o no se encuentra en el PATH.\n\n   Esta herramienta es necesaria para renderizar los temas.\n\n   ¿Deseas instalarlo automáticamente ahora?\n\n   [ENTER] Instalar via Winget (Recomendado)\n   [Q/ESC] Salir";
+            f.render_widget(Paragraph::new(msg).block(Block::default().borders(Borders::ALL).title(" DEPENDENCIA FALTANTE ")).style(Style::default().fg(Color::Yellow)), area);
+        }
+        AppState::InstallingDependency { current_action, log } => {
+            let area = main_layout[1];
+            let chunks = Layout::default()
+                .direction(Direction::Vertical)
+                .constraints([Constraint::Length(3), Constraint::Min(0)])
+                .split(area);
+
+            // 1. Estado arriba
+            f.render_widget(Paragraph::new(format!(" >> {}", current_action)).style(Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)).block(Block::default().borders(Borders::BOTTOM)), chunks[0]);
+
+            // 2. Log abajo (Debug box)
+            let log_text = log.join("\n");
+            f.render_widget(Paragraph::new(log_text).block(Block::default().borders(Borders::ALL).title(" Log de Instalación ")).style(Style::default().fg(Color::Gray)), chunks[1]);
+        }
         AppState::Main => {
             let chunks = Layout::default()
                 .direction(Direction::Horizontal)
