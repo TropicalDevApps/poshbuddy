@@ -2,48 +2,44 @@ use ratatui::{
     layout::{Alignment, Constraint, Direction, Layout},
     style::{Color, Modifier, Style},
     widgets::{Block, Borders, List, ListItem, Paragraph},
+    Frame,
 };
 use ansi_to_tui::IntoText;
-use crate::app::{App, ActiveView, AppState};
+use crate::app::{App, AppState, ActiveView};
 
-pub fn ui(f: &mut ratatui::Frame, app: &mut App) {
-    let main_layout = Layout::default()
+/// Main UI rendering function called for each frame
+pub fn ui(f: &mut Frame, app: &mut App) {
+    // 1. Root container (Total area)
+    let chunks = Layout::default()
         .direction(Direction::Vertical)
+        .margin(1)
         .constraints([Constraint::Length(3), Constraint::Min(0)].as_ref())
         .split(f.size());
 
-    // Header / Tabs
-    let titles = vec![" [1] Temas ", " [2] Fuentes "];
-    let mut header_text = String::new();
-    for (i, title) in titles.iter().enumerate() {
-        let is_selected = (i == 0 && app.active_view == ActiveView::Themes) || 
-                          (i == 1 && app.active_view == ActiveView::Fonts);
-        if is_selected {
-            header_text.push_str(&format!(" >>{}<< ", title));
-        } else {
-            header_text.push_str(&format!("   {}   ", title));
-        }
-    }
-
-    let header = Paragraph::new(header_text)
+    // 2. Application Header
+    let header = Paragraph::new(" PoshBuddy — Premium Oh My Posh Theme Manager ")
         .alignment(Alignment::Center)
+        .style(Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD))
         .block(Block::default().borders(Borders::ALL).title(format!(" PoshBuddy v{} ", app.version)));
-    f.render_widget(header, main_layout[0]);
+    f.render_widget(header, chunks[0]);
 
+    // 3. Conditional view rendering based on AppState
+    let main_layout = chunks;
     match &app.state {
+        // Initial system diagnostic view
         AppState::Onboarding(specs) => {
             let area = main_layout[1];
-            let chunks = Layout::default()
+            let inner_chunks = Layout::default()
                 .direction(Direction::Vertical)
                 .constraints([Constraint::Percentage(20), Constraint::Length(15), Constraint::Percentage(20)])
                 .split(area);
 
-            let font_status = if specs.has_nerd_font { "[ √ ] Nerd Font detectada" } else { "[ ! ] Falta Nerd Font (Recomendado para glifos)" };
-            let ps_status = if specs.is_pwsh_7 { "[ √ ] PowerShell 7 detectado" } else { "[ ! ] Windows PowerShell 5.1 (Se recomienda PowerShell 7)" };
-            let term_status = if specs.is_windows_terminal { "[ √ ] Terminal Moderno (Windows Terminal / VS Code)" } else { "[ ! ] Consola clásica (Se recomienda Windows Terminal)" };
+            let font_status = if specs.has_nerd_font { "[ √ ] Nerd Font Detected" } else { "[ ! ] Missing Nerd Font (Icons might be broken)" };
+            let ps_status = if specs.is_pwsh_7 { "[ √ ] PowerShell 7 Detected" } else { "[ ! ] Windows PowerShell 5.1 (PowerShell 7 recommended)" };
+            let term_status = if specs.is_windows_terminal { "[ √ ] Modern Terminal Detected (Windows Terminal / VS Code)" } else { "[ ! ] Classic Console (Windows Terminal recommended)" };
 
             let msg = format!(
-                "\n  🔍 DIAGNÓSTICO DEL SISTEMA\n\n  {}\n  {}\n  {}\n\n  Para que los temas de Oh My Posh se visualicen correctamente,\n  necesitas una Nerd Font y una terminal moderna.\n\n  Presiona [ENTER] para continuar a PoshBuddy\n  Presiona [Q] para salir",
+                "\n  🔍 SYSTEM DIAGNOSTICS\n\n  {}\n  {}\n  {}\n\n  For Oh My Posh themes to render correctly, you need a Nerd Font\n  compatible with your terminal emulator.\n\n  Press [ENTER] to continue to PoshBuddy\n  Press [Q] to quit",
                 font_status, ps_status, term_status
             );
 
@@ -52,64 +48,82 @@ pub fn ui(f: &mut ratatui::Frame, app: &mut App) {
             f.render_widget(
                 Paragraph::new(msg)
                     .alignment(Alignment::Center)
-                    .block(Block::default().borders(Borders::ALL).title(" BIENVENIDO A POSHBUDDY "))
+                    .block(Block::default().borders(Borders::ALL).title(" WELCOME TO POSHBUDDY "))
                     .style(Style::default().fg(color).add_modifier(Modifier::BOLD)),
-                chunks[1]
+                inner_chunks[1]
             );
         }
+
+        // Generic loading spinner view
         AppState::Loading => {
             let area = main_layout[1];
-            let chunks = Layout::default()
+            let loading_chunks = Layout::default()
                 .direction(Direction::Vertical)
                 .constraints([Constraint::Percentage(40), Constraint::Length(3), Constraint::Percentage(40)])
                 .split(area);
 
             let spinner_chars = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
-            let char = spinner_chars[app.spinner_tick % spinner_chars.len()];
+            let symbol = spinner_chars[app.spinner_tick % spinner_chars.len()];
 
-            let loading_text = format!("{} Configurando PoshBuddy...", char);
-            f.render_widget(Paragraph::new(loading_text).alignment(Alignment::Center).style(Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)), chunks[1]);
+            let loading_text = format!("{} Configuring PoshBuddy...", symbol);
+            f.render_widget(Paragraph::new(loading_text).alignment(Alignment::Center).style(Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)), loading_chunks[1]);
         }
+
+        // Active installation view for fonts
         AppState::Installing(name) => {
             let area = main_layout[1];
-            let p = Paragraph::new(format!("\n\nInstalando fuente: {}\n\nEsto puede tardar un poco dependiendo de tu conexión...", name))
+            let p = Paragraph::new(format!("\n\nInstalling font: {}\n\nDownloading assets using Oh My Posh CLI. This may take a moment...", name))
                 .alignment(Alignment::Center)
                 .block(Block::default().borders(Borders::ALL).title(" INSTALACIÓN EN CURSO "))
                 .style(Style::default().fg(Color::Cyan));
             f.render_widget(p, area);
         }
+
+        // Global error view
         AppState::Error(msg) => {
             let area = main_layout[1];
-            f.render_widget(Paragraph::new(format!("Error: {}\n\nPresiona 'q' para salir.", msg)).alignment(Alignment::Center).block(Block::default().borders(Borders::ALL).title("ERROR")).style(Style::default().fg(Color::Red)), area);
+            f.render_widget(
+                Paragraph::new(format!("Error: {}\n\nPress 'q' to quit.", msg))
+                    .alignment(Alignment::Center)
+                    .block(Block::default().borders(Borders::ALL).title(" FAILURE REPORT "))
+                    .style(Style::default().fg(Color::Red)),
+                area
+            );
         }
+
+        // Dependency missing view (Oh My Posh not in PATH)
         AppState::DependencyMissing => {
             let area = main_layout[1];
-            let msg = "\n   ⚠️  Oh My Posh no está instalado o no se encuentra en el PATH.\n\n   Esta herramienta es necesaria para renderizar los temas.\n\n   ¿Deseas instalarlo automáticamente ahora?\n\n   [ENTER] Instalar via Winget (Recomendado)\n   [Q/ESC] Salir";
-            f.render_widget(Paragraph::new(msg).block(Block::default().borders(Borders::ALL).title(" DEPENDENCIA FALTANTE ")).style(Style::default().fg(Color::Yellow)), area);
+            let msg = "\n   ⚠️  Oh My Posh is not installed or not found in PATH.\n\n   This binary is required to render and apply themes.\n\n   Would you like to install it automatically now?\n\n   [ENTER] Install via Winget (Recommended)\n   [Q/ESC] Quit";
+            f.render_widget(Paragraph::new(msg).block(Block::default().borders(Borders::ALL).title(" MISSING DEPENDENCY ")).style(Style::default().fg(Color::Yellow)), area);
         }
+
+        // Real-time installation log view
         AppState::InstallingDependency { current_action, log } => {
             let area = main_layout[1];
-            let chunks = Layout::default()
+            let log_chunks = Layout::default()
                 .direction(Direction::Vertical)
                 .constraints([Constraint::Length(3), Constraint::Min(0)])
                 .split(area);
 
-            // 1. Estado arriba
-            f.render_widget(Paragraph::new(format!(" >> {}", current_action)).style(Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)).block(Block::default().borders(Borders::BOTTOM)), chunks[0]);
+            // 1. Current step status
+            f.render_widget(Paragraph::new(format!(" >> {}", current_action)).style(Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)).block(Block::default().borders(Borders::BOTTOM)), log_chunks[0]);
 
-            // 2. Log abajo (Debug box)
-            let log_text = log.join("\n");
-            f.render_widget(Paragraph::new(log_text).block(Block::default().borders(Borders::ALL).title(" Log de Instalación ")).style(Style::default().fg(Color::Gray)), chunks[1]);
+            // 2. Detailed log scroll (Debug mode)
+            let log_summary = log.join("\n");
+            f.render_widget(Paragraph::new(log_summary).block(Block::default().borders(Borders::ALL).title(" Installation Log ")).style(Style::default().fg(Color::Gray)), log_chunks[1]);
         }
+
+        // Final feedback view after theme application
         AppState::Success(theme) => {
             let area = main_layout[1];
-            let chunks = Layout::default()
+            let success_chunks = Layout::default()
                 .direction(Direction::Vertical)
                 .constraints([Constraint::Percentage(30), Constraint::Length(10), Constraint::Percentage(30)])
                 .split(area);
 
             let msg = format!(
-                "\n   🎉 ¡TEMA ACTIVADO CON ÉXITO!\n\n   El tema '{}' se ha configurado en tus perfiles.\n\n   Para ver los cambios, por favor:\n   1. Cierra esta terminal.\n   2. Abre una nueva ventana de PowerShell.\n\n   (O ejecuta: '. $PROFILE' en tu sesión actual)\n\n   [Presiona cualquier tecla para salir]",
+                "\n   🎉 THEME ACTIVATED SUCCESSFULLY!\n\n   The theme '{}' has been configured in your profiles.\n\n   To see the changes, please:\n   1. Close this terminal.\n   2. Open a new PowerShell window.\n\n   (Or run: '. $PROFILE' in your current session)\n\n   [Press any key to exit]",
                 theme
             );
 
@@ -118,18 +132,20 @@ pub fn ui(f: &mut ratatui::Frame, app: &mut App) {
                     .alignment(Alignment::Center)
                     .block(Block::default().borders(Borders::ALL).title(" POSHBUDDY FEEDBACK "))
                     .style(Style::default().fg(Color::Green).add_modifier(Modifier::BOLD)),
-                chunks[1]
+                success_chunks[1]
             );
         }
+
+        // Final feedback view after font installation
         AppState::FontSuccess(font) => {
             let area = main_layout[1];
-            let chunks = Layout::default()
+            let font_chunks = Layout::default()
                 .direction(Direction::Vertical)
                 .constraints([Constraint::Percentage(30), Constraint::Length(10), Constraint::Percentage(30)])
                 .split(area);
 
             let msg = format!(
-                "\n   🎉 ¡FUENTE INSTALADA!\n\n   La fuente '{}' se ha instalado correctamente.\n\n   ¡Recarga tu terminal para poder visualizarla!\n   (Recuerda configurarla como fuente principal en los ajustes de tu terminal)\n\n   [Presiona cualquier tecla para volver]",
+                "\n   🎉 FONT INSTALLED!\n\n   The font '{}' was successfully added to your system.\n\n   Reload your terminal to start using it!\n   (Remember to set it as the primary font in terminal settings)\n\n   [Press any key to return]",
                 font
             );
 
@@ -138,39 +154,37 @@ pub fn ui(f: &mut ratatui::Frame, app: &mut App) {
                     .alignment(Alignment::Center)
                     .block(Block::default().borders(Borders::ALL).title(" POSHBUDDY FEEDBACK "))
                     .style(Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)),
-                chunks[1]
+                font_chunks[1]
             );
         }
+
+        // Primary application interface (Themes and Fonts explorer)
         AppState::Main => {
-            let chunks = Layout::default()
+            let explorer_chunks = Layout::default()
                 .direction(Direction::Horizontal)
                 .constraints([Constraint::Percentage(30), Constraint::Percentage(70)].as_ref())
                 .split(main_layout[1]);
 
+            // Left Sidebar: Discovery List
             match app.active_view {
                 ActiveView::Themes => {
                     let filtered = app.filtered_themes();
-                    let items: Vec<ListItem> = filtered.iter().map(|t| ListItem::new(t.as_str())).collect();
-                    let themes_list = List::new(items)
-                        .block(Block::default().borders(Borders::ALL).title(" Temas "))
+                    let themes: Vec<ListItem> = filtered.iter().map(|t| ListItem::new(t.as_str())).collect();
+                    let themes_list = List::new(themes)
+                        .block(Block::default().borders(Borders::ALL).title(" Themes Explorer "))
                         .highlight_style(Style::default().bg(Color::Blue).fg(Color::White).add_modifier(Modifier::BOLD))
                         .highlight_symbol(">> ");
-                    f.render_stateful_widget(themes_list, chunks[0], &mut app.list_state);
+                    f.render_stateful_widget(themes_list, explorer_chunks[0], &mut app.list_state);
 
-                    // Panel derecho dividido
-                    let right_chunks = Layout::default()
+                    // Right Panel: Split into Preview and Info
+                    let panel_chunks = Layout::default()
                         .direction(Direction::Vertical)
-                        .constraints([
-                            Constraint::Length(6), // Espacio para el Prompt
-                            Constraint::Min(0),    // Espacio para Info
-                        ].as_ref())
-                        .split(chunks[1]);
+                        .constraints([Constraint::Length(8), Constraint::Min(0)].as_ref())
+                        .split(explorer_chunks[1]);
 
-                    let selected_theme = app.list_state.selected().and_then(|i| filtered.get(i));
-                    
-                    // 1. Apartado del Prompt (Visual con soporte ANSI)
+                    // Top: Rendered Prompt Preview (via ansi-to-tui)
                     let display_preview = if app.theme_preview.is_empty() {
-                         "\n    Generando prompt...".into_text().unwrap_or_else(|_| "Cargando...".into())
+                         "\n    Rendering prompt...".into_text().unwrap_or_else(|_| "Loading...".into())
                     } else {
                         app.theme_preview.as_bytes().into_text().unwrap_or_else(|_| app.theme_preview.clone().into())
                     };
@@ -178,44 +192,40 @@ pub fn ui(f: &mut ratatui::Frame, app: &mut App) {
                     let prompt_box = Paragraph::new(display_preview)
                         .block(Block::default()
                             .borders(Borders::ALL)
-                            .title(" Diseño del Prompt ")
+                            .title(" Prompt Visual Preview ")
                             .border_style(Style::default().fg(Color::Yellow)));
-                    f.render_widget(prompt_box, right_chunks[0]);
+                    f.render_widget(prompt_box, panel_chunks[0]);
 
-                    // 2. Apartado de Información
+                    // Bottom: Theme Documentation and Controls
+                    let selected_theme = filtered.get(app.list_state.selected().unwrap_or(0));
                     let mut info_text = format!(
-                        "\n  Nombre: {}\n  Ruta: ~/.poshthemes/{}\n\n  Perfiles detectados: {}\n\n  Controles:\n  [ENTER] Aplicar este tema\n  [TAB]   Explorar Fuentes\n  [Q/ESC] Salir",
-                        selected_theme.unwrap_or(&"Ninguno".to_string()),
+                        "\n  Name: {}\n  Path: ~/.poshthemes/{}\n\n  Profile Sync: {} shells detected\n\n  Controls:\n  [ENTER] Apply theme\n  [TAB]   Browse Fonts\n  [Q/ESC] Quit",
+                        selected_theme.unwrap_or(&"None".to_string()),
                         selected_theme.unwrap_or(&"".to_string()),
                         app.detected_profiles.len()
                     );
 
                     if !app.has_nerd_font {
-                        info_text.push_str("\n\n  ⚠️  Nerd Font no detectada. Instala una en la pestaña 'Fuentes'.");
+                        info_text.push_str("\n\n  ⚠️  Nerd Font not detected. Install one in 'Fonts' tab.");
                     }
 
-                    let info_box = Paragraph::new(info_text)
-                        .block(Block::default().borders(Borders::ALL).title(" Información del Tema "));
-                    f.render_widget(info_box, right_chunks[1]);
+                    let info_panel = Paragraph::new(info_text)
+                        .block(Block::default().borders(Borders::ALL).title(" Theme Context "));
+                    f.render_widget(info_panel, panel_chunks[1]);
                 }
                 ActiveView::Fonts => {
+                    // Fonts Explorer view (Secondary tab)
                     let filtered = app.filtered_fonts();
-                    let items: Vec<ListItem> = filtered.iter().map(|f| ListItem::new(f.name.as_str())).collect();
-                    let fonts_list = List::new(items)
-                        .block(Block::default().borders(Borders::ALL).title(" Nerd Fonts "))
+                    let font_items: Vec<ListItem> = filtered.iter().map(|f| ListItem::new(f.name.as_str())).collect();
+                    let font_list = List::new(font_items)
+                        .block(Block::default().borders(Borders::ALL).title(" Recommended Fonts "))
                         .highlight_style(Style::default().bg(Color::Cyan).fg(Color::Black).add_modifier(Modifier::BOLD))
                         .highlight_symbol(">> ");
-                    f.render_stateful_widget(fonts_list, chunks[0], &mut app.fonts_list_state);
+                    f.render_stateful_widget(font_list, explorer_chunks[0], &mut app.fonts_list_state);
 
-                    let selected_font = app.fonts_list_state.selected().and_then(|i| filtered.get(i));
-                    let preview_text = match selected_font {
-                        Some(font) => format!(
-                            "\n  Fuente: {}\n\n  Estado: Disponible para instalar\n\n  Las Nerd Fonts son esenciales para ver los iconos\n  de Oh My Posh correctamente.\n\n  [ENTER] Descargar e Instalar automáticamente",
-                            font.name
-                        ),
-                        None => "\n  No se encontraron fuentes".to_string(),
-                    };
-                    f.render_widget(Paragraph::new(preview_text).block(Block::default().borders(Borders::ALL).title(" Instalador de Fuentes ")), chunks[1]);
+                    let info_box = Paragraph::new("\n  Select a font to install via Oh My Posh CLI.\n\n  Controls:\n  [ENTER] Download & Install\n  [TAB]   Back to Themes\n  [Q/ESC] Quit")
+                        .block(Block::default().borders(Borders::ALL).title(" Font Manager "));
+                    f.render_widget(info_box, explorer_chunks[1]);
                 }
             }
         }

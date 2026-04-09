@@ -1,10 +1,12 @@
+use std::error::Error;
+use std::io;
+use std::time::Duration;
 use crossterm::{
-    event::{self, DisableMouseCapture, EnableMouseCapture, Event, KeyCode},
+    event::{self, Event, KeyCode, KeyEventKind},
     execute,
     terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
 };
 use ratatui::{backend::CrosstermBackend, Terminal};
-use std::io;
 use tokio::sync::mpsc;
 
 mod app;
@@ -16,33 +18,43 @@ use crate::ui::ui;
 use crate::api::setup_app_task;
 
 #[tokio::main]
-async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    // Setup terminal
+async fn main() -> Result<(), Box<dyn Error>> {
+    // 1. Setup terminal in raw mode and switch to alternate screen
     enable_raw_mode()?;
     let mut stdout = io::stdout();
-    execute!(stdout, EnterAlternateScreen, EnableMouseCapture)?;
+    execute!(stdout, EnterAlternateScreen)?;
     let backend = CrosstermBackend::new(stdout);
     let mut terminal = Terminal::new(backend)?;
 
+    // 2. Initialize application state
     let mut app = App::new();
-    let (tx, mut rx) = mpsc::channel(32); // Increased to 32 to prevent backpressure
-
+    
+    // Create an mpsc channel for async background tasks to communicate with the UI loop
+    let (tx, mut rx) = mpsc::channel(32);
+    
+    // Initial fetch of themes and fonts in the background
     let themes_dir = app.themes_dir.clone();
     tokio::spawn(setup_app_task(tx.clone(), themes_dir));
 
+    // 3. Main Application Loop
     loop {
+        // Handle tick-based state updates (like spinner animations)
         if app.state == AppState::Loading {
             app.spinner_tick += 1;
         }
+
+        // Draw the TUI frame
         terminal.draw(|f| ui(f, &mut app))?;
 
+        // 4. Handle Incoming Messages from Background Tasks
         while let Ok(msg) = rx.try_recv() {
             match msg {
                 AppMessage::ThemesLoaded(mut names) => {
                     names.sort();
                     app.themes = names;
+                    // Transition to Main view if we were loading
                     if app.state == AppState::Loading { app.state = AppState::Main; }
-                    // Cargar primer preview
+                    // Pre-load the first theme preview
                     if let Some(t) = app.themes.first() {
                         app.load_theme_preview(t.clone(), tx.clone());
                     }
@@ -52,6 +64,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     app.fonts = fonts;
                 }
                 AppMessage::ThemePreviewLoaded { theme, preview } => {
+                    // Only update preview if it corresponds to the currently selected theme
                     let filtered = app.filtered_themes();
                     if let Some(selected_index) = app.list_state.selected() {
                         if let Some(current_theme) = filtered.get(selected_index) {
@@ -62,10 +75,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     }
                 }
                 AppMessage::FontInstalled(name) => {
+                    // Transition to FontSuccess screen
                     app.state = AppState::FontSuccess(name);
                     app.has_nerd_font = true;
                 }
                 AppMessage::InstallProgress { line } => {
+                    // Update the debug log and current action for the installation view
                     if let AppState::InstallingDependency { log, .. } = &mut app.state {
                         log.push(line.clone());
                         if log.len() > 100 { log.remove(0); }
@@ -81,25 +96,33 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     }
                 }
                 AppMessage::InstallFinished => {
+                    // After OMP install, reload themes
                     app.state = AppState::Loading;
                     let themes_dir = app.themes_dir.clone();
                     tokio::spawn(setup_app_task(tx.clone(), themes_dir));
                 }
-                AppMessage::Error(e) => { app.state = AppState::Error(e); }
+                AppMessage::Error(e) => {
+                    app.state = AppState::Error(e);
+                }
             }
         }
 
-        if event::poll(std::time::Duration::from_millis(50))? {
+        // 5. User Input Handling (keyboard events)
+        if event::poll(Duration::from_millis(100))? {
             if let Event::Key(key) = event::read()? {
-                if key.kind != event::KeyEventKind::Press { continue; }
-                if key.code == KeyCode::Char('q') || key.code == KeyCode::Esc { break; }
+                // Filter for key press events to avoid double-triggering on Windows
+                if key.kind != KeyEventKind::Press { continue; }
 
+                // Dependency checking state: allow starting install or exit
                 if app.state == AppState::DependencyMissing {
                     if key.code == KeyCode::Enter {
                         app.install_omp(tx.clone());
                     }
+                    if key.code == KeyCode::Char('q') || key.code == KeyCode::Esc { break; }
+                    continue;
                 }
 
+                // Initial diagnostic screen: allow continuing to Main or exit
                 if let AppState::Onboarding(_) = app.state {
                     match key.code {
                         KeyCode::Enter => {
@@ -115,45 +138,78 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     continue;
                 }
 
+                // Final success screen: Exit on any key
                 if let AppState::Success(_) = app.state {
                     break;
                 }
 
+                // Font success screen: Return to main menu on any key
                 if let AppState::FontSuccess(_) = app.state {
                     app.state = AppState::Main;
                     continue;
                 }
 
+                // Main navigation and controls
                 if app.state == AppState::Main {
                     match key.code {
                         KeyCode::Tab => {
+                            // Cycle between Themes and Fonts views
                             app.active_view = if app.active_view == ActiveView::Themes { ActiveView::Fonts } else { ActiveView::Themes };
                         }
                         KeyCode::Char('1') => { app.active_view = ActiveView::Themes; }
                         KeyCode::Char('2') => { app.active_view = ActiveView::Fonts; }
                         KeyCode::Down | KeyCode::Up => {
+                            // Horizontal focus logic for selection changes
                             if app.active_view == ActiveView::Themes {
-                                let total = app.filtered_themes().len();
-                                if total > 0 {
-                                    let i = match app.list_state.selected() {
-                                        Some(i) => if key.code == KeyCode::Down { (i + 1) % total } else { (i + total - 1) % total },
-                                        None => 0,
-                                    };
-                                    app.list_state.select(Some(i));
-                                    if let Some(theme) = app.filtered_themes().get(i) {
-                                        app.theme_preview = String::new(); // Clear while loading
-                                        app.load_theme_preview(theme.clone(), tx.clone());
+                                let filtered = app.filtered_themes();
+                                let i = match app.list_state.selected() {
+                                    Some(i) => {
+                                        if key.code == KeyCode::Down {
+                                            if i >= filtered.len() - 1 { 0 } else { i + 1 }
+                                        } else {
+                                            if i == 0 { filtered.len() - 1 } else { i - 1 }
+                                        }
                                     }
+                                    None => 0,
+                                };
+                                app.list_state.select(Some(i));
+                                // Request a preview update for the newly selected theme
+                                app.theme_preview = String::new();
+                                if let Some(t) = filtered.get(i) {
+                                    app.load_theme_preview(t.clone(), tx.clone());
                                 }
                             } else {
-                                let total = app.filtered_fonts().len();
-                                if total > 0 {
-                                    let i = match app.fonts_list_state.selected() {
-                                        Some(i) => if key.code == KeyCode::Down { (i + 1) % total } else { (i + total - 1) % total },
-                                        None => 0,
-                                    };
-                                    app.fonts_list_state.select(Some(i));
-                                }
+                                // Font selection navigation
+                                let filtered = app.filtered_fonts();
+                                let i = match app.fonts_list_state.selected() {
+                                    Some(i) => {
+                                        if key.code == KeyCode::Down {
+                                            if i >= filtered.len() - 1 { 0 } else { i + 1 }
+                                        } else {
+                                            if i == 0 { filtered.len() - 1 } else { i - 1 }
+                                        }
+                                    }
+                                    None => 0,
+                                };
+                                app.fonts_list_state.select(Some(i));
+                            }
+                        }
+                        KeyCode::Char('q') | KeyCode::Esc => break,
+                        KeyCode::Char(c) => {
+                            // Filtering logic for the list
+                            if app.active_view == ActiveView::Themes {
+                                app.filter.push(c);
+                                app.list_state.select(Some(0));
+                            } else {
+                                app.fonts_filter.push(c);
+                                app.fonts_list_state.select(Some(0));
+                            }
+                        }
+                        KeyCode::Backspace => {
+                            if app.active_view == ActiveView::Themes {
+                                app.filter.pop();
+                            } else {
+                                app.fonts_filter.pop();
                             }
                         }
                         KeyCode::Enter => {
@@ -161,6 +217,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                                 let filtered = app.filtered_themes();
                                 if let Some(selected) = app.list_state.selected() {
                                     if let Some(theme) = filtered.get(selected) {
+                                        // Update profiles and show success screen
                                         app.apply_theme(theme)?;
                                         app.state = AppState::Success(theme.clone());
                                     }
@@ -169,33 +226,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                                 let filtered = app.filtered_fonts();
                                 if let Some(selected) = app.fonts_list_state.selected() {
                                     if let Some(font) = filtered.get(selected) {
+                                        // Start font installation
                                         app.state = AppState::Installing(font.name.clone());
                                         app.install_font(font.name.clone(), tx.clone());
                                     }
                                 }
                             }
-                        }
-                        KeyCode::Char(c) => {
-                            if app.active_view == ActiveView::Themes { 
-                                app.filter.push(c); 
-                                app.list_state.select(Some(0));
-                                if let Some(theme) = app.filtered_themes().first() {
-                                    app.theme_preview = String::new();
-                                    app.load_theme_preview(theme.clone(), tx.clone());
-                                }
-                            }
-                            else { app.fonts_filter.push(c); app.fonts_list_state.select(Some(0)); }
-                        }
-                        KeyCode::Backspace => {
-                            if app.active_view == ActiveView::Themes { 
-                                app.filter.pop(); 
-                                app.list_state.select(Some(0));
-                                if let Some(theme) = app.filtered_themes().first() {
-                                    app.theme_preview = String::new();
-                                    app.load_theme_preview(theme.clone(), tx.clone());
-                                }
-                            }
-                            else { app.fonts_filter.pop(); app.fonts_list_state.select(Some(0)); }
                         }
                         _ => {}
                     }
@@ -204,13 +240,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     }
 
-    // Restore terminal
+    // 6. Cleanup terminal state on exit
     disable_raw_mode()?;
-    execute!(
-        terminal.backend_mut(),
-        LeaveAlternateScreen,
-        DisableMouseCapture
-    )?;
+    execute!(terminal.backend_mut(), LeaveAlternateScreen)?;
     terminal.show_cursor()?;
 
     Ok(())

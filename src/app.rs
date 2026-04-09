@@ -35,6 +35,7 @@ pub struct FontAsset {
     pub name: String,
 }
 
+/// Message types sent across the mpsc channel to update the TUI from background tasks
 pub enum AppMessage {
     ThemesLoaded(Vec<String>),
     FontsLoaded(Vec<FontAsset>),
@@ -45,6 +46,7 @@ pub enum AppMessage {
     Error(String),
 }
 
+/// State container for the PoshBuddy application
 pub struct App {
     pub state: AppState,
     pub active_view: ActiveView,
@@ -63,8 +65,9 @@ pub struct App {
 }
 
 impl App {
+    /// Initializes a new application instance with dynamic system detection
     pub fn new() -> Self {
-        let home = dirs::home_dir().expect("No se pudo encontrar el directorio home");
+        let home = dirs::home_dir().expect("Could not find home directory");
         let themes_dir = home.join(".poshthemes");
 
         let mut list_state = ListState::default();
@@ -73,6 +76,7 @@ impl App {
         let mut fonts_list_state = ListState::default();
         fonts_list_state.select(Some(0));
 
+        // 1. Initial system diagnostics
         let has_nerd_font = Self::check_nerd_font();
         let detected_profiles = Self::detect_profiles();
         let specs = Self::gather_system_specs(has_nerd_font);
@@ -94,6 +98,7 @@ impl App {
             detected_profiles,
         };
 
+        // 2. Pre-check for Oh My Posh installation
         if !app.check_omp_installed() {
             app.state = AppState::DependencyMissing;
         }
@@ -101,10 +106,23 @@ impl App {
         app
     }
 
+    /// Verifies if 'oh-my-posh' binary is present in the system PATH
+    pub fn check_omp_installed(&self) -> bool {
+        let cmd = if cfg!(windows) { "where.exe" } else { "which" };
+        std::process::Command::new(cmd)
+            .arg("oh-my-posh")
+            .output()
+            .map(|o| o.status.success())
+            .unwrap_or(false)
+    }
+
+    /// Checks the current terminal environment and PowerShell version capabilities
     pub fn gather_system_specs(has_nerd_font: bool) -> SystemSpecs {
+        // Detecting Windows Terminal via WT_SESSION environment variable
         let is_windows_terminal = std::env::var("WT_SESSION").is_ok() 
             || std::env::var("TERM_PROGRAM").map(|v| v == "vscode").unwrap_or(false);
         
+        // Checking for PowerShell 7 binary (pwsh)
         let cmd = if cfg!(windows) { "where.exe" } else { "which" };
         let is_pwsh_7 = std::process::Command::new(cmd)
             .arg("pwsh")
@@ -119,17 +137,10 @@ impl App {
         }
     }
 
-    pub fn check_omp_installed(&self) -> bool {
-        let cmd = if cfg!(windows) { "where.exe" } else { "which" };
-        std::process::Command::new(cmd)
-            .arg("oh-my-posh")
-            .output()
-            .map(|o| o.status.success())
-            .unwrap_or(false)
-    }
-
+    /// Dynamically identifies all active PowerShell profile paths ($PROFILE) on the system
     pub fn detect_profiles() -> Vec<PathBuf> {
         let mut profiles = Vec::new();
+        // Check both classic PowerShell and modern pwsh
         let shells = if cfg!(windows) {
             vec!["powershell", "pwsh"]
         } else {
@@ -150,11 +161,13 @@ impl App {
             }
         }
         
+        // Cleanup and deduplicate (linked profiles)
         profiles.sort();
         profiles.dedup();
         profiles
     }
 
+    /// Heuristic to check if a Nerd Font is likely being used by the system
     pub fn check_nerd_font() -> bool {
         if let Ok(term_prog) = std::env::var("TERM_PROGRAM") {
             if term_prog == "vscode" {
@@ -183,6 +196,7 @@ impl App {
         }
     }
 
+    /// Returns a filtered list of themes based on search criteria
     pub fn filtered_themes(&self) -> Vec<String> {
         self.themes
             .iter()
@@ -191,6 +205,7 @@ impl App {
             .collect()
     }
 
+    /// Returns a filtered list of fonts based on search criteria
     pub fn filtered_fonts(&self) -> Vec<FontAsset> {
         self.fonts
             .iter()
@@ -199,6 +214,7 @@ impl App {
             .collect()
     }
 
+    /// Atomically updates all detected shell profiles to initialize Oh My Posh with the selected theme
     pub fn apply_theme(&self, theme_name: &str) -> io::Result<()> {
         let theme_path = self.themes_dir.join(theme_name);
         let config_line = format!(
@@ -220,6 +236,7 @@ impl App {
             let mut new_content = Vec::new();
             let mut found = false;
 
+            // Search for existing Oh My Posh init line to replace or add a new one at the end
             for line in content.lines() {
                 if line.to_lowercase().contains("oh-my-posh init") {
                     new_content.push(config_line.clone());
@@ -243,6 +260,7 @@ impl App {
         Ok(())
     }
 
+    /// Triggers an asynchronous font installation via Oh My Posh CLI
     pub fn install_font(&self, font_name: String, tx: mpsc::Sender<AppMessage>) {
         let cmd = if cfg!(windows) {
             "oh-my-posh"
@@ -264,6 +282,7 @@ impl App {
         });
     }
 
+    /// Asynchronously generates a real prompt preview for a theme using isolation (no parent environment inheritance)
     pub fn load_theme_preview(&self, theme_name: String, tx: mpsc::Sender<AppMessage>) {
         let cmd = if cfg!(windows) {
             "oh-my-posh.exe"
@@ -275,6 +294,7 @@ impl App {
 
         tokio::spawn(async move {
             let mut cmd_obj = tokio::process::Command::new(cmd);
+            // Cleaning parent env vars to ensure we see the theme as specified, ignoring current shell profile
             cmd_obj.env_clear()
                   .env("PATH", std::env::var("PATH").unwrap_or_default())
                   .env("USERPROFILE", std::env::var("USERPROFILE").unwrap_or_default())
@@ -304,9 +324,10 @@ impl App {
         });
     }
 
+    /// Handles automatic installation of Oh My Posh via WinGet (Windows) or Homebrew (Linux/macOS)
     pub fn install_omp(&self, tx: mpsc::Sender<AppMessage>) {
         tokio::spawn(async move {
-            let _ = tx.send(AppMessage::InstallProgress { line: "Iniciando instalación de Oh My Posh...".to_string() }).await;
+            let _ = tx.send(AppMessage::InstallProgress { line: "Starting Oh My Posh installation...".to_string() }).await;
             
             let child = if cfg!(windows) {
                 tokio::process::Command::new("winget")
@@ -328,6 +349,7 @@ impl App {
                     let stdout = child.stdout.take().unwrap();
                     let mut reader = BufReader::new(stdout).lines();
 
+                    // Stream output lines to the TUI debug box in real-time
                     while let Ok(Some(line)) = reader.next_line().await {
                         let _ = tx.send(AppMessage::InstallProgress { line }).await;
                     }
@@ -337,12 +359,12 @@ impl App {
                             let _ = tx.send(AppMessage::InstallFinished).await;
                         }
                         _ => {
-                            let _ = tx.send(AppMessage::Error("Error en la instalación de Winget".to_string())).await;
+                            let _ = tx.send(AppMessage::Error("Installation failed via Winget".to_string())).await;
                         }
                     }
                 }
                 Err(e) => {
-                    let _ = tx.send(AppMessage::Error(format!("No se pudo iniciar el instalador: {}", e))).await;
+                    let _ = tx.send(AppMessage::Error(format!("Could not start installer: {}", e))).await;
                 }
             }
         });

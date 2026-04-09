@@ -1,121 +1,52 @@
-use std::fs;
 use std::path::PathBuf;
 use tokio::sync::mpsc;
-use futures::future::join_all;
 use crate::app::{AppMessage, FontAsset};
 
-pub async fn fetch_theme_names() -> Result<Vec<String>, String> {
-    let url = "https://api.github.com/repos/JanDeDobbeleer/oh-my-posh/contents/themes";
-    let client = reqwest::Client::builder()
-        .user_agent("PoshBuddy-Rust")
-        .build()
-        .map_err(|e| e.to_string())?;
-
-    let resp = client
-        .get(url)
+/// Main synchronization task that fetches themes and fonts from GitHub repositories in the background
+pub async fn setup_app_task(tx: mpsc::Sender<AppMessage>, _themes_dir: PathBuf) {
+    let client = reqwest::Client::new();
+    
+    // 1. Fetching available themes from the official Oh My Posh repository
+    let themes_url = "https://api.github.com/repos/JanDeDobbeleer/oh-my-posh/contents/themes";
+    let resp = client.get(themes_url)
+        .header("User-Agent", "poshbuddy")
         .send()
-        .await
-        .map_err(|e| e.to_string())?
-        .json::<Vec<serde_json::Value>>()
-        .await
-        .map_err(|e| e.to_string())?;
+        .await;
 
-    let themes = resp
-        .into_iter()
-        .filter_map(|v| v["name"].as_str().map(|s| s.to_string()))
-        .filter(|s| s.ends_with(".omp.json"))
-        .collect();
+    if let Ok(r) = resp {
+        if let Ok(json) = r.json::<serde_json::Value>().await {
+            // Processing JSON response to extract filenames ending in .omp.json
+            let names: Vec<String> = json.as_array()
+                .unwrap_or(&vec![])
+                .iter()
+                .filter_map(|v| v["name"].as_str().map(|s| s.to_string()))
+                .filter(|s| s.ends_with(".omp.json"))
+                .collect();
+            
+            // Sending the theme list back to the main UI loop
+            let _ = tx.send(AppMessage::ThemesLoaded(names)).await;
+        }
+    }
 
-    Ok(themes)
-}
-
-pub async fn fetch_font_names() -> Result<Vec<FontAsset>, String> {
-    let url = "https://api.github.com/repos/ryanoasis/nerd-fonts/releases/latest";
-    let client = reqwest::Client::builder()
-        .user_agent("PoshBuddy-Rust")
-        .build()
-        .map_err(|e| e.to_string())?;
-
-    let resp = client
-        .get(url)
+    // 2. Fetching Nerd Fonts metadata from the Nerd Fonts repository (patched fonts list)
+    let fonts_url = "https://api.github.com/repos/ryanoasis/nerd-fonts/contents/patched-fonts";
+    let resp_fonts = client.get(fonts_url)
+        .header("User-Agent", "poshbuddy")
         .send()
-        .await
-        .map_err(|e| e.to_string())?
-        .json::<serde_json::Value>()
-        .await
-        .map_err(|e| e.to_string())?;
+        .await;
 
-    let assets = resp["assets"]
-        .as_array()
-        .ok_or("No se pudieron encontrar assets en la release")?;
-
-    let fonts = assets
-        .iter()
-        .filter_map(|a| {
-            let raw_name = a["name"].as_str()?;
-            if raw_name.ends_with(".zip") {
-                Some(FontAsset {
-                    name: raw_name.replace(".zip", ""),
-                })
-            } else {
-                None
-            }
-        })
-        .collect();
-
-    Ok(fonts)
-}
-
-pub async fn setup_app_task(tx: mpsc::Sender<AppMessage>, themes_dir: PathBuf) {
-    // 1. Fetch de fuentes
-    match fetch_font_names().await {
-        Ok(fonts) => {
+    if let Ok(r) = resp_fonts {
+        if let Ok(json) = r.json::<serde_json::Value>().await {
+            // Filtering for directories that represent different font families
+            let fonts: Vec<FontAsset> = json.as_array()
+                .unwrap_or(&vec![])
+                .iter()
+                .filter(|v| v["type"] == "dir")
+                .filter_map(|v| v["name"].as_str().map(|s| FontAsset { name: s.to_string() }))
+                .collect();
+            
+            // Sending the font metadata back to the main UI loop
             let _ = tx.send(AppMessage::FontsLoaded(fonts)).await;
         }
-        Err(e) => {
-            let _ = tx.send(AppMessage::Error(format!("Error fuentes: {}", e))).await;
-        }
     }
-
-    // 2. Fetch de temas
-    let theme_names = match fetch_theme_names().await {
-        Ok(names) => names,
-        Err(e) => {
-            let _ = tx.send(AppMessage::Error(format!("Error temas: {}", e))).await;
-            return;
-        }
-    };
-
-    if !themes_dir.exists() {
-        if let Err(e) = fs::create_dir_all(&themes_dir) {
-            let _ = tx.send(AppMessage::Error(format!("Error creando carpeta: {}", e))).await;
-            return;
-        }
-    }
-
-    let client = reqwest::Client::builder()
-        .user_agent("PoshBuddy-Rust")
-        .build()
-        .unwrap_or_default();
-
-    let download_futures = theme_names.iter().map(|name| {
-        let client = client.clone();
-        let name = name.clone();
-        let path = themes_dir.join(&name);
-        async move {
-            if path.exists() {
-                return Ok(());
-            }
-            let url = format!(
-                "https://raw.githubusercontent.com/JanDeDobbeleer/oh-my-posh/main/themes/{}",
-                name
-            );
-            let resp = client.get(url).send().await.map_err(|e| e.to_string())?;
-            let bytes = resp.bytes().await.map_err(|e| e.to_string())?;
-            fs::write(path, bytes).map_err(|e| e.to_string())
-        }
-    });
-
-    let _results = join_all(download_futures).await;
-    let _ = tx.send(AppMessage::ThemesLoaded(theme_names)).await;
 }
