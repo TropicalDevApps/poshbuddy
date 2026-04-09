@@ -3,6 +3,7 @@ use ratatui::{
     style::{Color, Modifier, Style},
     widgets::{Block, Borders, List, ListItem, Paragraph},
 };
+use ansi_to_tui::IntoText;
 use crate::app::{App, ActiveView, AppState};
 
 pub fn ui(f: &mut ratatui::Frame, app: &mut App) {
@@ -82,11 +83,11 @@ pub fn ui(f: &mut ratatui::Frame, app: &mut App) {
 
                     let selected_theme = app.list_state.selected().and_then(|i| filtered.get(i));
                     
-                    // 1. Apartado del Prompt (Visual)
+                    // 1. Apartado del Prompt (Visual con soporte ANSI)
                     let display_preview = if app.theme_preview.is_empty() {
-                        "\n    Generando prompt...".to_string()
+                         "\n    Generando prompt...".into_text().unwrap_or_else(|_| "Cargando...".into())
                     } else {
-                        format!("\n    {}", app.theme_preview.trim())
+                        app.theme_preview.as_bytes().into_text().unwrap_or_else(|_| app.theme_preview.clone().into())
                     };
 
                     let prompt_box = Paragraph::new(display_preview)
