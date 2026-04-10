@@ -10,10 +10,12 @@ PoshBuddy is a standalone binary once compiled, but it relies on external tools 
 ## Prerequisites
 
 ### 1. Developer Environment
+
 - **Rust Toolchain**: 1.76 or higher.
 - **Git**: For cloning and updating the source.
 
 ### 2. Runtime Dependencies
+
 PoshBuddy validates these at startup:
 - **Oh My Posh**: The core engine. If missing, PoshBuddy offers a 1-click install via `winget`.
 - **Nerd Fonts**: Required to prevent "broken box" characters in your prompt.
@@ -31,6 +33,7 @@ When you run `poshbuddy`, the first screen is the **System Diagnostic**:
 ```
 
 ### Troubleshooting Diagnostics
+
 - **Nerd Font [ ! ]**: Go to the **Fonts [2]** tab in PoshBuddy, choose a font (e.g., MesloLGS NF), and install it. You must then manually set this font in your terminal settings.
 - **PowerShell 7 [ ! ]**: PoshBuddy works with Windows PowerShell 5.1, but it is significantly slower. We recommend installing [PowerShell 7](https://aka.ms/pscore6).
 - **Classic Console [ ! ]**: If you see this, you are using `conhost.exe`. Icons and colors will be degraded. Download **Windows Terminal** from the Microsoft Store.

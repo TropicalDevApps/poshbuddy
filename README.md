@@ -1,7 +1,7 @@
 <div align="center">
   <img src="https://raw.githubusercontent.com/julesklord/poshbuddy/main/assets/poshbuddy_logo.png" alt="PoshBuddy Logo" width="200" onerror="this.src='https://placehold.co/200x200/222222/00d2ff?text=PoshBuddy'"/>
   
-  # PoshBuddy
+# PoshBuddy
   
   **The definitive TUI manager for Oh My Posh in Windows and PowerShell environments**
 
@@ -28,9 +28,10 @@
 ## 🛠️ Prerequisites
 
 For the optimal experience (The Golden Standard), we recommend:
-* **[Windows Terminal](https://github.com/microsoft/terminal)**
-* **[PowerShell 7+](https://github.com/PowerShell/PowerShell)**
-* A **Nerd Font** configured as your primary font in your terminal settings.
+
+- **[Windows Terminal](https://github.com/microsoft/terminal)**
+- **[PowerShell 7+](https://github.com/PowerShell/PowerShell)**
+- A **Nerd Font** configured as your primary font in your terminal settings.
 
 *(Note: PoshBuddy works in classic consoles, but the visual experience is vastly superior when meeting the above requirements. The app will guide you during the onboarding process).*
 
@@ -67,6 +68,7 @@ PoshBuddy is actively evolving. We are currently paving the way for the followin
 ## 🤝 Contributing
 
 Contributions are welcome! If you'd like to help expand PoshBuddy (including the multi-language and plugin milestones):
+
 1. *Fork* the project.
 2. Create a feature branch (`git checkout -b feature/NewFeature`).
 3. *Commit* your changes (`git commit -m 'feat(scope): add NewFeature'`).

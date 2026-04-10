@@ -20,17 +20,20 @@ PoshBuddy uses a keyboard-centric interface designed for speed. There are no sub
 ## View-Specific Controls
 
 ### Themes Explorer [1]
+
 - `[UP / DOWN]`: Navigate the theme list. This triggers an asynchronous preview.
 - `[ANY CHAR]`: Start typing to filter themes by name (e.g., typing "rob" finds "robbyrussell").
 - `[BACKSPACE]`: Remove characters from the search filter.
 - `[ENTER]`: Apply the selected theme to all detected PowerShell profiles.
 
 ### Fonts Manager [2]
+
 - `[UP / DOWN]`: Navigate the list of recommended Nerd Fonts.
 - `[ENTER]`: Start the downloader and installer for the selected font.
 - `[ANY CHAR]`: Filter fonts by name.
 
 ## State Transitions
+
 1. **Startup**: `Onboarding` -> `Loading` (Fetching GitHub themes) -> `Main`.
 2. **Action**: `Main` -> `Installing` (Async) -> `Success/Feedback`.
 3. **Recovery**: `Error` screen allows you to pulse `Q` to exit and check logs.
