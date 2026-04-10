@@ -1,0 +1,3 @@
+## 2024-05-24 - [Visible State in TUI Apps]
+**Learning:** In terminal user interfaces (TUIs), state changes like active filters are often invisible to the user unless explicitly rendered. Because TUIs lack standard browser UI elements like search bars, failing to display the active state (like a typed filter) creates a confusing experience where list items disappear without obvious cause.
+**Action:** Always visually indicate active invisible states (like filters or search queries) in the UI, such as updating component titles or adding dedicated status lines.
