@@ -198,18 +198,32 @@ impl App {
 
     /// Returns a filtered list of themes based on search criteria
     pub fn filtered_themes(&self) -> Vec<String> {
+        // Fast path: avoid iteration if filter is empty
+        if self.filter.is_empty() {
+            return self.themes.clone();
+        }
+
+        // Optimization: Hoist lowercase conversion outside the loop to avoid redundant allocations
+        let filter_lower = self.filter.to_lowercase();
         self.themes
             .iter()
-            .filter(|t| t.to_lowercase().contains(&self.filter.to_lowercase()))
+            .filter(|t| t.to_lowercase().contains(&filter_lower))
             .cloned()
             .collect()
     }
 
     /// Returns a filtered list of fonts based on search criteria
     pub fn filtered_fonts(&self) -> Vec<FontAsset> {
+        // Fast path: avoid iteration if filter is empty
+        if self.fonts_filter.is_empty() {
+            return self.fonts.clone();
+        }
+
+        // Optimization: Hoist lowercase conversion outside the loop to avoid redundant allocations
+        let filter_lower = self.fonts_filter.to_lowercase();
         self.fonts
             .iter()
-            .filter(|f| f.name.to_lowercase().contains(&self.fonts_filter.to_lowercase()))
+            .filter(|f| f.name.to_lowercase().contains(&filter_lower))
             .cloned()
             .collect()
     }
