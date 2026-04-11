@@ -542,12 +542,12 @@ impl App {
 
             if is_active {
                 // Remove the plugin
-                new_lines.retain(|l| !l.contains(&payload.split('\n').next().unwrap_or(&payload)));
+                new_lines.retain(|l| !l.contains(payload.split('\n').next().unwrap_or(&payload)));
             } else {
                 // Add the plugin
                 if !new_lines
                     .iter()
-                    .any(|l| l.contains(&payload.split('\n').next().unwrap_or(&payload)))
+                    .any(|l| l.contains(payload.split('\n').next().unwrap_or(&payload)))
                 {
                     new_lines.push(payload.clone());
                 }
@@ -599,6 +599,7 @@ impl App {
 mod tests {
     use super::*;
     use ratatui::widgets::ListState;
+
     use std::path::PathBuf;
 
     fn mock_app() -> App {
@@ -797,17 +798,112 @@ mod tests {
             "Expected is_pwsh_7 to be true when pwsh is in PATH"
         );
     }
-}
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use ratatui::widgets::ListState;
+    #[test]
+    fn test_detect_profiles() {
+        let _lock = ENV_LOCK.lock().unwrap();
+        let _guard = EnvGuard::new();
+
+        let original_path = env::var("PATH").unwrap_or_default();
+        let dir = env::temp_dir().join("fake_detect_profiles_bin");
+        std::fs::create_dir_all(&dir).unwrap();
+
+        let pwsh_name = if cfg!(windows) { "pwsh.cmd" } else { "pwsh" };
+        let pwsh_path = dir.join(pwsh_name);
+
+        let content = if cfg!(windows) {
+            "@echo off\necho /mock/path/profile.ps1"
+        } else {
+            "#!/bin/sh\necho -n '/mock/path/profile.ps1'"
+        };
+
+        std::fs::write(&pwsh_path, content).unwrap();
+
+        if cfg!(windows) {
+            let powershell_path = dir.join("powershell.cmd");
+            std::fs::write(
+                &powershell_path,
+                "@echo off\necho /mock/path/powershell_profile.ps1",
+            )
+            .unwrap();
+        }
+
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            std::fs::set_permissions(&pwsh_path, std::fs::Permissions::from_mode(0o755)).unwrap();
+        }
+
+        let sep = if cfg!(windows) { ";" } else { ":" };
+        let new_path = format!("{}{}{}", dir.display(), sep, original_path);
+        env::set_var("PATH", &new_path);
+
+        let profiles = App::detect_profiles();
+
+        assert!(!profiles.is_empty(), "Profiles should not be empty");
+        assert!(
+            profiles.contains(&PathBuf::from("/mock/path/profile.ps1")),
+            "Should contain mocked pwsh profile"
+        );
+
+        if cfg!(windows) {
+            assert!(
+                profiles.contains(&PathBuf::from("/mock/path/powershell_profile.ps1")),
+                "Should contain mocked powershell profile"
+            );
+        }
+    }
+
+    #[test]
+    fn test_detect_profiles_empty_output() {
+        let _lock = ENV_LOCK.lock().unwrap();
+        let _guard = EnvGuard::new();
+
+        let original_path = env::var("PATH").unwrap_or_default();
+        let dir = env::temp_dir().join("fake_detect_profiles_empty_bin");
+        std::fs::create_dir_all(&dir).unwrap();
+
+        let pwsh_name = if cfg!(windows) { "pwsh.cmd" } else { "pwsh" };
+        let pwsh_path = dir.join(pwsh_name);
+
+        let content = if cfg!(windows) {
+            "@echo off"
+        } else {
+            "#!/bin/sh\nexit 0"
+        };
+
+        std::fs::write(&pwsh_path, content).unwrap();
+
+        if cfg!(windows) {
+            let powershell_path = dir.join("powershell.cmd");
+            std::fs::write(&powershell_path, "@echo off").unwrap();
+        }
+
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            std::fs::set_permissions(&pwsh_path, std::fs::Permissions::from_mode(0o755)).unwrap();
+        }
+
+        let sep = if cfg!(windows) { ";" } else { ":" };
+        let new_path = format!("{}{}{}", dir.display(), sep, original_path);
+        env::set_var("PATH", &new_path);
+
+        let profiles = App::detect_profiles();
+
+        assert!(
+            profiles.is_empty(),
+            "Profiles should be empty when output is blank"
+        );
+    }
 
     fn create_test_app() -> App {
         App {
             state: AppState::Main,
             active_view: ActiveView::Themes,
+            plugins: vec![],
+            plugins_filter: "".to_string(),
+            plugins_list_state: ListState::default(),
             themes: vec![
                 "agnoster".to_string(),
                 "amro".to_string(),
