@@ -542,12 +542,12 @@ impl App {
 
             if is_active {
                 // Remove the plugin
-                new_lines.retain(|l| !l.contains(&payload.split('\n').next().unwrap_or(&payload)));
+                new_lines.retain(|l| !l.contains(payload.split('\n').next().unwrap_or(&payload)));
             } else {
                 // Add the plugin
                 if !new_lines
                     .iter()
-                    .any(|l| l.contains(&payload.split('\n').next().unwrap_or(&payload)))
+                    .any(|l| l.contains(payload.split('\n').next().unwrap_or(&payload)))
                 {
                     new_lines.push(payload.clone());
                 }
@@ -797,12 +797,73 @@ mod tests {
             "Expected is_pwsh_7 to be true when pwsh is in PATH"
         );
     }
-}
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use ratatui::widgets::ListState;
+    #[test]
+    fn test_check_nerd_font() {
+        let _lock = ENV_LOCK.lock().unwrap();
+        let _guard = EnvGuard::new();
+
+        // 1. TERM_PROGRAM = vscode
+        env::set_var("TERM_PROGRAM", "vscode");
+        assert!(App::check_nerd_font(), "Should be true if TERM_PROGRAM is vscode");
+        env::remove_var("TERM_PROGRAM");
+
+        // For the next tests, we need to mock powershell/powershell.exe.
+        let dir = env::temp_dir().join("fake_pwsh_nerd_font");
+        std::fs::create_dir_all(&dir).unwrap();
+
+        let pwsh_name = if cfg!(windows) { "powershell" } else { "powershell.exe" };
+        let pwsh_path = dir.join(pwsh_name);
+
+        let original_path = env::var("PATH").unwrap_or_default();
+        let sep = if cfg!(windows) { ";" } else { ":" };
+        let new_path = format!("{}{}{}", dir.display(), sep, original_path);
+        env::set_var("PATH", &new_path);
+
+        // Helper to write mock powershell script that outputs a specific string
+        let write_mock = |output: &str| {
+            let script = format!("#!/bin/sh\necho \"{}\"\n", output);
+            std::fs::write(&pwsh_path, script).unwrap();
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::PermissionsExt;
+                std::fs::set_permissions(&pwsh_path, std::fs::Permissions::from_mode(0o755)).unwrap();
+            }
+        };
+
+        // 2. Command succeeds, outputs typical non-nerd font ("Consolas")
+        write_mock("Consolas");
+        assert!(!App::check_nerd_font(), "Should be false if it outputs 'Consolas'");
+
+        // 3. Command succeeds, outputs empty string
+        write_mock("   ");
+        assert!(App::check_nerd_font(), "Should be true if outputs only whitespace");
+
+        // 4. Command succeeds, outputs a nerd font name
+        write_mock("CaskaydiaCove NF");
+        assert!(App::check_nerd_font(), "Should be true for a font with 'NF'");
+
+        write_mock("MesloLGS Nerd Font");
+        assert!(App::check_nerd_font(), "Should be true for a font with 'nerd'");
+
+        write_mock("FiraCode Retina");
+        assert!(App::check_nerd_font(), "Should be true for a font with 'retina'");
+
+        write_mock("Fira Code");
+        assert!(App::check_nerd_font(), "Should be true for a font with 'code'");
+
+        write_mock("Meslo LG");
+        assert!(App::check_nerd_font(), "Should be true for a font with 'meslo'");
+
+        // 5. Command fails (remove mock to simulate command not found)
+        std::fs::remove_file(&pwsh_path).unwrap();
+        // NOTE: if the system HAS a real powershell/powershell.exe in the rest of PATH,
+        // this might fall back to it. To ensure failure, we clear PATH completely.
+        env::set_var("PATH", "");
+        assert!(App::check_nerd_font(), "Should default to true on command failure");
+
+        env::set_var("PATH", &original_path);
+    }
 
     fn create_test_app() -> App {
         App {
@@ -817,12 +878,15 @@ mod tests {
                 "cyberpunk".to_string(),
             ],
             fonts: vec![],
+            plugins: vec![],
             filter: "".to_string(),
             fonts_filter: "".to_string(),
+            plugins_filter: "".to_string(),
             themes_dir: PathBuf::from("/mock/themes/dir"),
             version: "1.0.0".to_string(),
             list_state: ListState::default(),
             fonts_list_state: ListState::default(),
+            plugins_list_state: ListState::default(),
             spinner_tick: 0,
             has_nerd_font: true,
             theme_preview: "".to_string(),
