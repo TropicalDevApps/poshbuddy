@@ -1,7 +1,36 @@
 use ratatui::widgets::ListState;
+use std::fs;
 use std::io;
 use std::path::PathBuf;
 use tokio::sync::mpsc;
+
+const OMP_BINARY: &str = "oh-my-posh";
+const WHERE_CMD: &str = "where";
+
+/// Metadata for a PowerShell module/extension
+#[derive(Clone, Debug)]
+pub struct PluginAsset {
+    pub name: String,
+    pub description: String,
+    pub documentation: String,
+    pub module_name: String,
+    pub init_script: Option<String>,
+}
+
+/// Metadata for a font asset
+#[derive(Clone, Debug)]
+pub struct FontAsset {
+    pub name: String,
+    pub download_url: String,
+}
+
+/// System specifications for diagnostic display
+#[derive(Debug, Clone)]
+pub struct SystemSpecs {
+    pub is_pwsh_7: bool,
+    pub has_nerd_font: bool,
+    pub is_windows_terminal: bool,
+}
 
 // ... (rest of the code remains the same)
 
@@ -32,12 +61,11 @@ pub enum AppMessage {
 pub enum AppState {
     Loading,
     Main,
-    #[allow(dead_code)]
-    Onboarding,
+    Onboarding(SystemSpecs),
     DependencyMissing,
     InstallingDependency {
         log: Vec<String>,
-        progress: f64,
+        current_action: String,
     },
     Success(String),
     FontSuccess(String),
