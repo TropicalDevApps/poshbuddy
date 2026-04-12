@@ -110,7 +110,13 @@ pub struct App {
 impl App {
     /// Initializes a new application instance with dynamic system detection
     pub fn new() -> Self {
-        let home = dirs::home_dir().expect("Could not find home directory");
+        let home = match dirs::home_dir() {
+            Some(h) => h,
+            None => {
+                eprintln!("Error: Could not find home directory");
+                std::process::exit(1);
+            }
+        };
         let themes_dir = home.join(".poshthemes");
 
         let mut list_state = ListState::default();
@@ -544,7 +550,7 @@ impl App {
             match child {
                 Ok(mut child) => {
                     use tokio::io::{AsyncBufReadExt, BufReader};
-                    let stdout = child.stdout.take().unwrap();
+                    let stdout = child.stdout.take().ok_or("Failed to capture stdout")?;
                     let mut reader = BufReader::new(stdout).lines();
 
                     // Stream output lines to the TUI debug box in real-time
