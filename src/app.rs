@@ -1,7 +1,9 @@
 use ratatui::widgets::ListState;
+use std::env;
 use std::fs;
 use std::io;
 use std::path::PathBuf;
+use std::sync::Mutex;
 use tokio::sync::mpsc;
 
 const OMP_BINARY: &str = if cfg!(windows) {
@@ -61,12 +63,17 @@ pub struct PluginAsset {
 pub enum AppMessage {
     ThemesLoaded(Vec<String>),
     FontsLoaded(Vec<FontAsset>),
-    ThemePreviewLoaded { theme: String, preview: String },
+    ThemePreviewLoaded {
+        theme: String,
+        preview: String,
+    },
     #[allow(dead_code)]
     FontInstalled(String),
     #[allow(dead_code)]
     PluginInstalled(String),
-    InstallProgress { line: String },
+    InstallProgress {
+        line: String,
+    },
     InstallFinished,
     Error(String),
 }
@@ -136,7 +143,7 @@ impl App {
                     name: "zoxide (z Explorer)".to_string(),
                     description: "A smarter cd command. It remembers which directories you use most often.".to_string(),
                     documentation: "Usage: type 'z <name>' to jump. Replaces 'cd' with intelligent fuzzy matching.".to_string(),
-                    module_name: "zoxide".to_string(), 
+                    module_name: "zoxide".to_string(),
                     init_script: Some("if (Get-Command zoxide -ErrorAction SilentlyContinue) { zoxide init pwsh | Invoke-Expression }".to_string()),
                 },
                 PluginAsset {
@@ -548,7 +555,10 @@ impl App {
             init.clone()
         } else {
             // SilentlyContinue avoids red error walls if the user doesn't have the module installed
-            format!("Import-Module {} -ErrorAction SilentlyContinue", plugin.module_name)
+            format!(
+                "Import-Module {} -ErrorAction SilentlyContinue",
+                plugin.module_name
+            )
         };
 
         for profile in &self.detected_profiles {
@@ -625,6 +635,45 @@ mod tests {
     use super::*;
     use ratatui::widgets::ListState;
     use std::path::PathBuf;
+    use std::sync::Mutex;
+
+    static ENV_LOCK: Mutex<()> = Mutex::new(());
+
+    struct EnvGuard {
+        wt_session: Option<String>,
+        term_program: Option<String>,
+        path: Option<String>,
+    }
+
+    impl EnvGuard {
+        fn new() -> Self {
+            Self {
+                wt_session: env::var("WT_SESSION").ok(),
+                term_program: env::var("TERM_PROGRAM").ok(),
+                path: env::var("PATH").ok(),
+            }
+        }
+    }
+
+    impl Drop for EnvGuard {
+        fn drop(&mut self) {
+            if let Some(ref v) = self.wt_session {
+                env::set_var("WT_SESSION", v);
+            } else {
+                env::remove_var("WT_SESSION");
+            }
+            if let Some(ref v) = self.term_program {
+                env::set_var("TERM_PROGRAM", v);
+            } else {
+                env::remove_var("TERM_PROGRAM");
+            }
+            if let Some(ref v) = self.path {
+                env::set_var("PATH", v);
+            } else {
+                env::remove_var("PATH");
+            }
+        }
+    }
 
     fn mock_app() -> App {
         App {
@@ -709,46 +758,104 @@ mod tests {
         assert_eq!(app.filtered_fonts().len(), 0);
     }
 
-    use std::env;
-    use std::sync::Mutex;
+    #[test]
+    fn test_detect_profiles() {
+        let _lock = ENV_LOCK.lock().unwrap();
+        let _guard = EnvGuard::new();
 
-    static ENV_LOCK: Mutex<()> = Mutex::new(());
+        let original_path = env::var("PATH").unwrap_or_default();
+        let dir = env::temp_dir().join("fake_detect_profiles_bin");
+        std::fs::create_dir_all(&dir).unwrap();
 
-    struct EnvGuard {
-        wt_session: Option<String>,
-        term_program: Option<String>,
-        path: Option<String>,
-    }
+        let pwsh_name = if cfg!(windows) { "pwsh.cmd" } else { "pwsh" };
+        let pwsh_path = dir.join(pwsh_name);
 
-    impl EnvGuard {
-        fn new() -> Self {
-            Self {
-                wt_session: env::var("WT_SESSION").ok(),
-                term_program: env::var("TERM_PROGRAM").ok(),
-                path: env::var("PATH").ok(),
-            }
+        let content = if cfg!(windows) {
+            "@echo off\necho /mock/path/profile.ps1"
+        } else {
+            "#!/bin/sh\necho -n '/mock/path/profile.ps1'"
+        };
+
+        std::fs::write(&pwsh_path, content).unwrap();
+
+        if cfg!(windows) {
+            let powershell_path = dir.join("powershell.cmd");
+            std::fs::write(
+                &powershell_path,
+                "@echo off\necho /mock/path/powershell_profile.ps1",
+            )
+            .unwrap();
+        }
+
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            std::fs::set_permissions(&pwsh_path, std::fs::Permissions::from_mode(0o755)).unwrap();
+        }
+
+        let sep = if cfg!(windows) { ";" } else { ":" };
+        let new_path = format!("{}{}{}", dir.display(), sep, original_path);
+        env::set_var("PATH", &new_path);
+
+        let profiles = App::detect_profiles();
+
+        assert!(!profiles.is_empty(), "Profiles should not be empty");
+        assert!(
+            profiles.contains(&PathBuf::from("/mock/path/profile.ps1")),
+            "Should contain mocked pwsh profile"
+        );
+
+        if cfg!(windows) {
+            assert!(
+                profiles.contains(&PathBuf::from("/mock/path/powershell_profile.ps1")),
+                "Should contain mocked powershell profile"
+            );
         }
     }
 
-    impl Drop for EnvGuard {
-        fn drop(&mut self) {
-            if let Some(ref v) = self.wt_session {
-                env::set_var("WT_SESSION", v);
-            } else {
-                env::remove_var("WT_SESSION");
-            }
-            if let Some(ref v) = self.term_program {
-                env::set_var("TERM_PROGRAM", v);
-            } else {
-                env::remove_var("TERM_PROGRAM");
-            }
-            if let Some(ref v) = self.path {
-                env::set_var("PATH", v);
-            } else {
-                env::remove_var("PATH");
-            }
+    #[test]
+    fn test_detect_profiles_empty_output() {
+        let _lock = ENV_LOCK.lock().unwrap();
+        let _guard = EnvGuard::new();
+
+        let original_path = env::var("PATH").unwrap_or_default();
+        let dir = env::temp_dir().join("fake_detect_profiles_empty_bin");
+        std::fs::create_dir_all(&dir).unwrap();
+
+        let pwsh_name = if cfg!(windows) { "pwsh.cmd" } else { "pwsh" };
+        let pwsh_path = dir.join(pwsh_name);
+
+        let content = if cfg!(windows) {
+            "@echo off"
+        } else {
+            "#!/bin/sh\nexit 0"
+        };
+
+        std::fs::write(&pwsh_path, content).unwrap();
+
+        if cfg!(windows) {
+            let powershell_path = dir.join("powershell.cmd");
+            std::fs::write(&powershell_path, "@echo off").unwrap();
         }
+
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            std::fs::set_permissions(&pwsh_path, std::fs::Permissions::from_mode(0o755)).unwrap();
+        }
+
+        let sep = if cfg!(windows) { ";" } else { ":" };
+        let new_path = format!("{}{}{}", dir.display(), sep, original_path);
+        env::set_var("PATH", &new_path);
+
+        let profiles = App::detect_profiles();
+
+        assert!(
+            profiles.is_empty(),
+            "Profiles should be empty when output is blank"
+        );
     }
+}
 
     #[test]
     fn test_gather_system_specs() {
