@@ -41,7 +41,6 @@ pub async fn setup_app_task_with_urls(
     }
 
     // 2. Fetching Nerd Fonts metadata from the Nerd Fonts repository (patched fonts list)
-    let fonts_url = fonts_url;
     let resp_fonts = client
         .get(fonts_url)
         .header("User-Agent", "poshbuddy")
