@@ -23,6 +23,36 @@ pub enum AppMessage {
     InstallProgress { line: String },
     InstallFinished,
     Error(String),
+    FontInstalled(String),
+    PluginInstalled(String),
+}
+
+/// Represents the different states the application can be in
+#[derive(Debug, Clone, PartialEq)]
+pub enum AppState {
+    Loading,
+    Main,
+    #[allow(dead_code)]
+    Onboarding,
+    DependencyMissing,
+    InstallingDependency {
+        log: Vec<String>,
+        progress: f64,
+    },
+    Success(String),
+    FontSuccess(String),
+    PluginSuccess(String),
+    Installing(String),
+    Error(String),
+    Welcome,
+}
+
+/// Active view/tab in the main interface
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum ActiveView {
+    Themes,
+    Fonts,
+    Plugins,
 }
 
 /// State container for the PoshBuddy application
