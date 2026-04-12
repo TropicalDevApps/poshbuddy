@@ -292,7 +292,7 @@ impl BackupManager {
 
     /// Elimina backups antiguos manteniendo solo los N más recientes
     fn cleanup_old_backups(&self, profile_path: &Path) -> Result<(), BackupError> {
-        let mut backups = self.list_backups(profile_path)?;
+        let backups = self.list_backups(profile_path)?;
 
         // Si tenemos más backups que el límite, eliminar los más antiguos
         if backups.len() > self.max_backups_per_file {

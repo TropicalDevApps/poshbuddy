@@ -60,7 +60,7 @@ pub struct SystemSpecs {
 
 /// Message types sent across the mpsc channel to update the TUI from background tasks
 pub enum AppMessage {
-    ThemesLoaded(Vec<String>),
+    ThemesLoaded(Vec<ThemeAsset>),
     FontsLoaded(Vec<FontAsset>),
     ThemePreviewLoaded { theme: ThemeAsset, preview: String },
     InstallProgress { line: String },
@@ -346,7 +346,7 @@ impl App {
         let mut profiles = Vec::new();
 
         // 1. Try to guess standard paths first (Zero-latency)
-        if let Some(mut docs) = dirs::document_dir() {
+        if let Some(docs) = dirs::document_dir() {
             let pwsh5 = docs.join("WindowsPowerShell").join("Microsoft.PowerShell_profile.ps1");
             let pwsh7 = docs.join("PowerShell").join("Microsoft.PowerShell_profile.ps1");
             if pwsh5.exists() { profiles.push(pwsh5); }
@@ -479,7 +479,11 @@ impl App {
                             let _ = tx.send(AppMessage::Error(format!("Save failed: {}", e))).await;
                         } else {
                             // After download, tell the app to refresh local themes
-                            let _ = tx.send(AppMessage::ThemesLoaded(vec![theme.name])).await;
+                            let _ = tx.send(AppMessage::ThemesLoaded(vec![ThemeAsset {
+                                name: format!("{}.omp.json", theme.name),
+                                is_local: true,
+                                download_url: None,
+                            }])).await;
                         }
                     }
                 }
@@ -961,12 +965,8 @@ impl App {
             match msg {
                 AppMessage::ThemesLoaded(new_themes) => {
                     for t in new_themes {
-                        if !self.themes.iter().any(|existing| existing.name == t) {
-                            self.themes.push(ThemeAsset {
-                                name: t,
-                                is_local: true,
-                                download_url: None,
-                            });
+                        if !self.themes.iter().any(|existing| existing.name == t.name) {
+                            self.themes.push(t);
                         }
                     }
                     self.themes.sort_by(|a, b| a.name.cmp(&b.name));
@@ -1506,20 +1506,24 @@ mod tests {
             state: AppState::Loading,
             active_view: ActiveView::Themes,
             themes: Vec::new(),
+            remote_themes: Vec::new(),
             fonts: Vec::new(),
-            plugins: Vec::new(),
             filter: String::new(),
             fonts_filter: String::new(),
-            plugins_filter: String::new(),
             themes_dir: PathBuf::from("/tmp"),
             version: "test".to_string(),
             list_state: ListState::default(),
             fonts_list_state: ListState::default(),
             plugins_list_state: ListState::default(),
+            plugins: Vec::new(),
+            segments: Vec::new(),
+            plugins_filter: String::new(),
+            segments_filter: String::new(),
             spinner_tick: 0,
             has_nerd_font: false,
             theme_preview: String::new(),
             detected_profiles: Vec::new(),
+            active_config_path: None,
             backup_manager: crate::backup::BackupManager::new(Some(10)),
             last_backup: None,
             diagnostic: crate::diagnostic::Diagnostic::new(),
@@ -1534,9 +1538,9 @@ mod tests {
     fn test_filtered_themes() {
         let mut app = mock_app();
         app.themes = vec![
-            "bubbles.omp.json".to_string(),
-            "joker.omp.json".to_string(),
-            "M365.omp.json".to_string(),
+            ThemeAsset { name: "bubbles.omp.json".to_string(), is_local: true, download_url: None },
+            ThemeAsset { name: "joker.omp.json".to_string(), is_local: true, download_url: None },
+            ThemeAsset { name: "M365.omp.json".to_string(), is_local: true, download_url: None },
         ];
 
         // Empty filter should return all
@@ -1544,7 +1548,7 @@ mod tests {
 
         // Case-insensitive matching
         app.filter = "JOKER".to_string();
-        assert_eq!(app.filtered_themes(), vec!["joker.omp.json".to_string()]);
+        assert_eq!(app.filtered_themes()[0].name, "joker.omp.json");
 
         // Partial matching
         app.filter = "omp".to_string();
@@ -1823,27 +1827,31 @@ mod filtering_tests {
             state: AppState::Main,
             active_view: ActiveView::Themes,
             themes: vec![
-                "agnoster".to_string(),
-                "amro".to_string(),
-                "atomic".to_string(),
-                "catppuccin_frappe".to_string(),
-                "Catppuccin_Macchiato".to_string(),
-                "cyberpunk".to_string(),
+                ThemeAsset { name: "agnoster".to_string(), is_local: true, download_url: None },
+                ThemeAsset { name: "amro".to_string(), is_local: true, download_url: None },
+                ThemeAsset { name: "atomic".to_string(), is_local: true, download_url: None },
+                ThemeAsset { name: "catppuccin_frappe".to_string(), is_local: true, download_url: None },
+                ThemeAsset { name: "Catppuccin_Macchiato".to_string(), is_local: true, download_url: None },
+                ThemeAsset { name: "cyberpunk".to_string(), is_local: true, download_url: None },
             ],
+            remote_themes: vec![],
             fonts: vec![],
-            plugins: vec![],
             filter: "".to_string(),
             fonts_filter: "".to_string(),
-            plugins_filter: "".to_string(),
             themes_dir: PathBuf::from("/mock/themes/dir"),
             version: "1.0.0".to_string(),
             list_state: ListState::default(),
             fonts_list_state: ListState::default(),
             plugins_list_state: ListState::default(),
+            plugins: vec![],
+            segments: vec![],
+            plugins_filter: "".to_string(),
+            segments_filter: "".to_string(),
             spinner_tick: 0,
             has_nerd_font: true,
             theme_preview: "".to_string(),
             detected_profiles: vec![],
+            active_config_path: None,
             backup_manager: crate::backup::BackupManager::new(Some(10)),
             last_backup: None,
             diagnostic: crate::diagnostic::Diagnostic::new(),
@@ -1867,8 +1875,8 @@ mod filtering_tests {
         app.filter = "cAtP".to_string();
         let filtered = app.filtered_themes();
         assert_eq!(filtered.len(), 2);
-        assert!(filtered.contains(&"catppuccin_frappe".to_string()));
-        assert!(filtered.contains(&"Catppuccin_Macchiato".to_string()));
+        assert!(filtered.iter().any(|t| t.name == "catppuccin_frappe"));
+        assert!(filtered.iter().any(|t| t.name == "Catppuccin_Macchiato"));
     }
 
     #[test]
@@ -1877,7 +1885,7 @@ mod filtering_tests {
         app.filter = "amro".to_string();
         let filtered = app.filtered_themes();
         assert_eq!(filtered.len(), 1);
-        assert_eq!(filtered[0], "amro");
+        assert_eq!(filtered[0].name, "amro");
     }
 
     #[test]

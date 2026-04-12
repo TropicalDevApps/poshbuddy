@@ -125,8 +125,8 @@ mod tests {
         let msg1 = rx.recv().await.unwrap();
         if let AppMessage::ThemesLoaded(themes) = msg1 {
             assert_eq!(themes.len(), 2);
-            assert_eq!(themes[0], "theme1.omp.json");
-            assert_eq!(themes[1], "theme2.omp.json");
+            assert_eq!(themes[0].name, "theme1.omp.json");
+            assert_eq!(themes[1].name, "theme2.omp.json");
         } else {
             panic!("Expected ThemesLoaded message");
         }
@@ -182,8 +182,8 @@ mod tests {
         let msg1 = rx.recv().await.unwrap();
         if let AppMessage::ThemesLoaded(themes) = msg1 {
             assert_eq!(themes.len(), 2);
-            assert_eq!(themes[0], "theme1.omp.json");
-            assert_eq!(themes[1], "theme2.omp.json");
+            assert_eq!(themes[0].name, "theme1.omp.json");
+            assert_eq!(themes[1].name, "theme2.omp.json");
         } else {
             panic!("Expected ThemesLoaded message");
         }
