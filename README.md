@@ -4,13 +4,11 @@
 
 # poshbuddy
 
-![Build](https://github.com/julesklord/poshbuddy/actions/workflows/rust.yml/badge.svg)
-![Version](https://img.shields.io/badge/version-0.2.1-blue)
-![License](https://img.shields.io/badge/license-MIT-green)
+![Build](https://github.com/julesklord/poshbuddy/actions/workflows/rust.yml/badge.svg) ![Version](https://img.shields.io/badge/version-0.2.1-blue) ![License](https://img.shields.io/badge/license-MIT-green)
 
-  **The definitive TUI manager for Oh My Posh on Windows & PowerShell**
+**The definitive TUI manager for Oh My Posh on Windows & PowerShell**
 
-  *Sleek, fast, and unified theme management for your terminal.*
+_Sleek, fast, and unified theme management for your terminal._
 
 **Your terminal should be a weapon, not a chore.**
 
@@ -38,15 +36,19 @@ Customizing a PowerShell prompt shouldn't feel like a chore. PoshBuddy eliminate
 ## ✨ Deep Dive into Features
 
 ### 🎨 Real-Time Visual Previews
+
 Under the hood, PoshBuddy uses a custom execution engine that runs Oh My Posh in an isolated environment (`env_clear`). This means the preview you see in the TUI is exactly what you get, unaffected by your current desktop environment or existing shell configurations.
 
 ### ⚕️ Onboarding & Diagnostics
+
 Not sure why symbols are broken? PoshBuddy runs a comprehensive diagnostic at startup:
-*   **Font Check**: Verifies the presence of Nerd Fonts.
-*   **Shell Check**: Detects if you're on the slower PowerShell 5.1 or the high-performance PowerShell 7.
-*   **Terminal Check**: Alerts you if you're using the legacy `conhost.exe` and recommends the modern **Windows Terminal**.
+
+- **Font Check**: Verifies the presence of Nerd Fonts.
+- **Shell Check**: Detects if you're on the slower PowerShell 5.1 or the high-performance PowerShell 7.
+- **Terminal Check**: Alerts you if you're using the legacy `conhost.exe` and recommends the modern **Windows Terminal**.
 
 ### 🚀 Smart Dependency Management
+
 If Oh My Posh isn't found in your `$PATH`, PoshBuddy won't just fail. It offers to install it for you using `winget`, providing a live, scrollable terminal log so you can monitor the installation process with total transparency.
 
 ---
@@ -54,6 +56,7 @@ If Oh My Posh isn't found in your `$PATH`, PoshBuddy won't just fail. It offers 
 ## 🛠️ Technical Stack
 
 PoshBuddy is built for performance and reliability:
+
 - **Rust**: The core language, ensuring safety and speed.
 - **Tokio**: Powering the asynchronous background tasks (theme fetching, installers).
 - **Ratatui**: The state-of-the-art framework for the TUI render loop.
@@ -76,15 +79,15 @@ cargo run --release
 
 ### 🎮 Controls & Navigation
 
-| Key | Action |
-| :--- | :--- |
-| `[1]` | **Themes Explorer** — Browse and filter styles. |
-| `[2]` | **Font Manager** — Get the glyphs you need. |
-| `[3]` | **Plugins** (Upcoming) — Extend your prompt functionality. |
-| `[TAB]` | Cycle focus between the List and the Info panel. |
-| `[ENTER]` | Apply theme or start installation. |
-| `[ANY CHAR]` | Instantly filter the active list. |
-| `[Q] / [ESC]` | Clean exit. |
+| Key           | Action                                                     |
+| :------------ | :--------------------------------------------------------- |
+| `[1]`         | **Themes Explorer** — Browse and filter styles.            |
+| `[2]`         | **Font Manager** — Get the glyphs you need.                |
+| `[3]`         | **Plugins** (Upcoming) — Extend your prompt functionality. |
+| `[TAB]`       | Cycle focus between the List and the Info panel.           |
+| `[ENTER]`     | Apply theme or start installation.                         |
+| `[ANY CHAR]`  | Instantly filter the active list.                          |
+| `[Q] / [ESC]` | Clean exit.                                                |
 
 ---
 
@@ -113,6 +116,7 @@ A: Themes are cached in `~/.poshthemes/` and synced from the official Oh My Posh
 ## 🤝 Community & Support
 
 **Contributions are highly welcome!**
+
 - Read our [Wiki](docs/wiki/index.md) for a technical deep dive.
 - Check the [Troubleshooting Guide](docs/wiki/troubleshooting.md) if symbols don't show correctly.
 - Post issues or feature requests on our GitHub tracker.

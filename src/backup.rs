@@ -1,5 +1,5 @@
 //! Sistema de respaldo automático para archivos de configuración de PowerShell
-//! 
+//!
 //! Este módulo proporciona:
 //! - Creación automática de backups antes de modificaciones
 //! - Restauración de versiones anteriores
@@ -15,9 +15,12 @@ use std::time::{SystemTime, UNIX_EPOCH};
 #[derive(Debug, Clone)]
 pub struct BackupInfo {
     pub path: PathBuf,
+    #[allow(dead_code)]
     pub original_path: PathBuf,
     pub timestamp: u64,
+    #[allow(dead_code)]
     pub size_bytes: u64,
+    #[allow(dead_code)]
     pub description: String,
 }
 
@@ -33,8 +36,13 @@ pub enum BackupError {
     Io(io::Error),
     ProfileNotFound(PathBuf),
     BackupNotFound(PathBuf),
+    #[allow(dead_code)]
     InvalidBackupName(String),
-    RestoreFailed { backup: PathBuf, target: PathBuf, source: io::Error },
+    RestoreFailed {
+        backup: PathBuf,
+        target: PathBuf,
+        source: io::Error,
+    },
 }
 
 impl std::fmt::Display for BackupError {
@@ -44,8 +52,18 @@ impl std::fmt::Display for BackupError {
             BackupError::ProfileNotFound(p) => write!(f, "Perfil no encontrado: {}", p.display()),
             BackupError::BackupNotFound(b) => write!(f, "Backup no encontrado: {}", b.display()),
             BackupError::InvalidBackupName(n) => write!(f, "Nombre de backup inválido: {}", n),
-            BackupError::RestoreFailed { backup, target, source } => {
-                write!(f, "Fallo al restaurar {} a {}: {}", backup.display(), target.display(), source)
+            BackupError::RestoreFailed {
+                backup,
+                target,
+                source,
+            } => {
+                write!(
+                    f,
+                    "Fallo al restaurar {} a {}: {}",
+                    backup.display(),
+                    target.display(),
+                    source
+                )
             }
         }
     }
@@ -61,14 +79,14 @@ impl From<io::Error> for BackupError {
 
 impl BackupManager {
     /// Crea un nuevo gestor de backups
-    /// 
+    ///
     /// # Arguments
     /// * `max_backups_per_file` - Número máximo de backups a mantener por archivo (default: 5)
     pub fn new(max_backups_per_file: Option<usize>) -> Self {
         let backup_dir = dirs::home_dir()
             .map(|h| h.join(".poshbuddy").join("backups"))
             .unwrap_or_else(|| PathBuf::from(".poshbuddy/backups"));
-        
+
         Self {
             backup_dir,
             max_backups_per_file: max_backups_per_file.unwrap_or(5),
@@ -89,27 +107,27 @@ impl BackupManager {
             .duration_since(UNIX_EPOCH)
             .unwrap_or_default()
             .as_secs();
-        
+
         let filename = original_path
             .file_stem()
             .and_then(|s| s.to_str())
             .unwrap_or("unknown");
-        
+
         let extension = original_path
             .extension()
             .and_then(|s| s.to_str())
             .unwrap_or("ps1");
-        
+
         let backup_name = format!("{}_{}.backup.{}", filename, timestamp, extension);
         self.backup_dir.join(backup_name)
     }
 
     /// Crea un backup del perfil especificado
-    /// 
+    ///
     /// # Arguments
     /// * `profile_path` - Ruta al archivo de perfil de PowerShell
     /// * `description` - Descripción del cambio (ej: "Aplicar tema joker", "Instalar plugin zoxide")
-    /// 
+    ///
     /// # Returns
     /// Ruta al archivo de backup creado
     pub fn backup_profile(
@@ -162,13 +180,15 @@ impl BackupManager {
         for entry in fs::read_dir(&self.backup_dir)? {
             let entry = entry?;
             let path = entry.path();
-            
+
             if let Some(filename) = path.file_stem().and_then(|s| s.to_str()) {
                 // Buscar backups que coincidan con el nombre del perfil
-                if filename.starts_with(&format!("{}_", profile_name)) && path.extension() == Some(std::ffi::OsStr::new("backup")) {
+                if filename.starts_with(&format!("{}_", profile_name))
+                    && path.extension() == Some(std::ffi::OsStr::new("backup"))
+                {
                     let metadata = fs::metadata(&path)?;
                     let size_bytes = metadata.len();
-                    
+
                     // Extraer timestamp del nombre
                     let timestamp = filename
                         .split('_')
@@ -182,7 +202,8 @@ impl BackupManager {
                         fs::read_to_string(&meta_path)
                             .ok()
                             .and_then(|content| {
-                                content.lines()
+                                content
+                                    .lines()
                                     .find(|l| l.starts_with("description="))
                                     .map(|l| l.trim_start_matches("description=").to_string())
                             })
@@ -204,32 +225,32 @@ impl BackupManager {
 
         // Ordenar por timestamp descendente (más reciente primero)
         backups.sort_by(|a, b| b.timestamp.cmp(&a.timestamp));
-        
+
         Ok(backups)
     }
 
     /// Restaura el backup más reciente para un perfil
-    /// 
+    ///
     /// # Arguments
     /// * `profile_path` - Ruta al perfil a restaurar
-    /// 
+    ///
     /// # Returns
     /// Información del backup restaurado
     pub fn restore_latest(&self, profile_path: &Path) -> Result<BackupInfo, BackupError> {
         let backups = self.list_backups(profile_path)?;
-        
+
         if let Some(latest) = backups.first() {
             self.restore_backup(&latest.path, profile_path)?;
             Ok(latest.clone())
         } else {
             Err(BackupError::BackupNotFound(
-                self.backup_dir.join("*.backup.ps1")
+                self.backup_dir.join("*.backup.ps1"),
             ))
         }
     }
 
     /// Restaura un backup específico
-    /// 
+    ///
     /// # Arguments
     /// * `backup_path` - Ruta al archivo de backup
     /// * `target_path` - Ruta de destino para la restauración
@@ -268,7 +289,7 @@ impl BackupManager {
     /// Elimina backups antiguos manteniendo solo los N más recientes
     fn cleanup_old_backups(&self, profile_path: &Path) -> Result<(), BackupError> {
         let mut backups = self.list_backups(profile_path)?;
-        
+
         // Si tenemos más backups que el límite, eliminar los más antiguos
         if backups.len() > self.max_backups_per_file {
             let to_remove = &backups[self.max_backups_per_file..];
@@ -282,6 +303,7 @@ impl BackupManager {
     }
 
     /// Elimina todos los backups para un perfil específico
+    #[allow(dead_code)]
     pub fn delete_all_backups(&self, profile_path: &Path) -> Result<usize, BackupError> {
         let backups = self.list_backups(profile_path)?;
         let count = backups.len();
@@ -295,9 +317,10 @@ impl BackupManager {
     }
 
     /// Obtiene el tamaño total utilizado por todos los backups
+    #[allow(dead_code)]
     pub fn total_backup_size(&self) -> Result<u64, BackupError> {
         self.ensure_backup_dir()?;
-        
+
         let mut total = 0u64;
         for entry in fs::read_dir(&self.backup_dir)? {
             let entry = entry?;
@@ -306,7 +329,7 @@ impl BackupManager {
                 total += metadata.len();
             }
         }
-        
+
         Ok(total)
     }
 }
@@ -320,12 +343,12 @@ mod tests {
     fn create_test_backup_manager() -> (BackupManager, TempDir) {
         let temp_dir = TempDir::new().unwrap();
         let backup_dir = temp_dir.path().join("backups");
-        
+
         let manager = BackupManager {
             backup_dir,
             max_backups_per_file: 3,
         };
-        
+
         (manager, temp_dir)
     }
 
@@ -339,7 +362,8 @@ mod tests {
     #[test]
     fn test_backup_and_restore() {
         let (manager, temp_dir) = create_test_backup_manager();
-        let profile = create_test_profile(temp_dir.path(), "test_profile.ps1", "contenido original");
+        let profile =
+            create_test_profile(temp_dir.path(), "test_profile.ps1", "contenido original");
 
         // Crear backup
         let backup_path = manager.backup_profile(&profile, "Test backup").unwrap();
@@ -364,22 +388,22 @@ mod tests {
         // Crear múltiples backups
         manager.backup_profile(&profile, "Backup 1").unwrap();
         std::thread::sleep(std::time::Duration::from_millis(10));
-        
+
         fs::write(&profile, "v2").unwrap();
         manager.backup_profile(&profile, "Backup 2").unwrap();
         std::thread::sleep(std::time::Duration::from_millis(10));
-        
+
         fs::write(&profile, "v3").unwrap();
         manager.backup_profile(&profile, "Backup 3").unwrap();
 
         // Listar backups
         let backups = manager.list_backups(&profile).unwrap();
         assert_eq!(backups.len(), 3);
-        
+
         // Verificar orden (más reciente primero)
         assert!(backups[0].timestamp > backups[1].timestamp);
         assert!(backups[1].timestamp > backups[2].timestamp);
-        
+
         // Verificar descripciones
         assert_eq!(backups[0].description, "Backup 3");
         assert_eq!(backups[1].description, "Backup 2");
@@ -394,14 +418,16 @@ mod tests {
         // Crear 5 backups (máximo es 3)
         for i in 1..=5 {
             fs::write(&profile, format!("v{}", i)).unwrap();
-            manager.backup_profile(&profile, &format!("Backup {}", i)).unwrap();
+            manager
+                .backup_profile(&profile, &format!("Backup {}", i))
+                .unwrap();
             std::thread::sleep(std::time::Duration::from_millis(10));
         }
 
         // Solo deben quedar 3
         let backups = manager.list_backups(&profile).unwrap();
         assert_eq!(backups.len(), 3);
-        
+
         // Los más recientes deben permanecer
         assert_eq!(backups[0].description, "Backup 5");
         assert_eq!(backups[1].description, "Backup 4");

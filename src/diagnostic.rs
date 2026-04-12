@@ -11,8 +11,11 @@ use std::process::Command;
 #[derive(Debug)]
 pub enum DiagnosticError {
     Io(io::Error),
+    #[allow(dead_code)]
     InvalidSyntax(String),
+    #[allow(dead_code)]
     PowerShellNotFound,
+    #[allow(dead_code)]
     ProfileNotReadable(String),
 }
 
@@ -22,7 +25,9 @@ impl std::fmt::Display for DiagnosticError {
             DiagnosticError::Io(e) => write!(f, "Error de E/S: {}", e),
             DiagnosticError::InvalidSyntax(msg) => write!(f, "Sintaxis inválida: {}", msg),
             DiagnosticError::PowerShellNotFound => write!(f, "PowerShell no encontrado"),
-            DiagnosticError::ProfileNotReadable(path) => write!(f, "No se puede leer el perfil: {}", path),
+            DiagnosticError::ProfileNotReadable(path) => {
+                write!(f, "No se puede leer el perfil: {}", path)
+            }
         }
     }
 }
@@ -96,7 +101,10 @@ impl Diagnostic {
 
     /// Verifica la sintaxis de un script de PowerShell
     /// Usa el parámetro -WhatIf de PowerShell para validar sin ejecutar
-    pub fn validate_powershell_syntax(&self, script: &str) -> Result<DiagnosticResult, DiagnosticError> {
+    pub fn validate_powershell_syntax(
+        &self,
+        script: &str,
+    ) -> Result<DiagnosticResult, DiagnosticError> {
         let mut result = DiagnosticResult::new();
 
         // Verificar que hay contenido
@@ -144,10 +152,8 @@ impl Diagnostic {
                     if path_end > 0 {
                         let theme_path = &after_config[quote_idx + 1..quote_idx + 1 + path_end];
                         if !std::path::Path::new(theme_path).exists() {
-                            result.add_warning(format!(
-                                "La ruta del tema no existe: {}",
-                                theme_path
-                            ));
+                            result
+                                .add_warning(format!("La ruta del tema no existe: {}", theme_path));
                         }
                     }
                 }
@@ -215,7 +221,10 @@ impl Diagnostic {
     }
 
     /// Verifica todos los perfiles detectados
-    pub fn check_all_profiles(&self, profiles: &[std::path::PathBuf]) -> Result<DiagnosticResult, DiagnosticError> {
+    pub fn check_all_profiles(
+        &self,
+        profiles: &[std::path::PathBuf],
+    ) -> Result<DiagnosticResult, DiagnosticError> {
         let mut result = DiagnosticResult::new();
 
         if profiles.is_empty() {
@@ -242,7 +251,10 @@ impl Diagnostic {
     }
 
     /// Ejecuta un diagnóstico completo del sistema
-    pub fn run_full_diagnostic(&self, profiles: &[std::path::PathBuf]) -> Result<DiagnosticResult, DiagnosticError> {
+    pub fn run_full_diagnostic(
+        &self,
+        profiles: &[std::path::PathBuf],
+    ) -> Result<DiagnosticResult, DiagnosticError> {
         let mut result = DiagnosticResult::new();
 
         // 1. Verificar que PowerShell está instalado
@@ -256,7 +268,9 @@ impl Diagnostic {
             Ok(omp_ok) => {
                 if !omp_ok {
                     result.add_error("Oh My Posh no está instalado o no está en el PATH");
-                    result.add_suggestion("Instala Oh My Posh: winget install JanDeDobbeleer.OhMyPosh");
+                    result.add_suggestion(
+                        "Instala Oh My Posh: winget install JanDeDobbeleer.OhMyPosh",
+                    );
                 }
             }
             Err(e) => {
@@ -292,9 +306,7 @@ impl Diagnostic {
                 .args(["/C", "where oh-my-posh"])
                 .output()
         } else {
-            Command::new("which")
-                .arg("oh-my-posh")
-                .output()
+            Command::new("which").arg("oh-my-posh").output()
         };
 
         match output {
@@ -363,14 +375,18 @@ mod tests {
     #[test]
     fn test_validate_balanced_braces() {
         let diag = Diagnostic::new();
-        let result = diag.validate_powershell_syntax("function test() { Write-Host 'ok' }").unwrap();
+        let result = diag
+            .validate_powershell_syntax("function test() { Write-Host 'ok' }")
+            .unwrap();
         assert!(result.is_valid());
     }
 
     #[test]
     fn test_validate_unbalanced_braces() {
         let diag = Diagnostic::new();
-        let result = diag.validate_powershell_syntax("function test() { Write-Host 'ok'").unwrap();
+        let result = diag
+            .validate_powershell_syntax("function test() { Write-Host 'ok'")
+            .unwrap();
         assert!(!result.is_valid());
         assert!(result.errors.iter().any(|e| e.contains("Llaves")));
     }
@@ -378,7 +394,8 @@ mod tests {
     #[test]
     fn test_validate_omp_command() {
         let diag = Diagnostic::new();
-        let script = "oh-my-posh init pwsh --config 'C:\\nonexistent\\theme.omp.json' | Invoke-Expression";
+        let script =
+            "oh-my-posh init pwsh --config 'C:\\nonexistent\\theme.omp.json' | Invoke-Expression";
         let result = diag.validate_powershell_syntax(script).unwrap();
         // Debería tener una advertencia sobre la ruta no existente
         assert!(result.warnings.iter().any(|w| w.contains("ruta del tema")));

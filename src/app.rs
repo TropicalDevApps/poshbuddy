@@ -1,54 +1,9 @@
 use ratatui::widgets::ListState;
-use std::env;
-use std::fs;
 use std::io;
 use std::path::PathBuf;
-use std::sync::Mutex;
 use tokio::sync::mpsc;
 
-const OMP_BINARY: &str = if cfg!(windows) {
-    "oh-my-posh.exe"
-} else {
-    "oh-my-posh"
-};
-const WHERE_CMD: &str = if cfg!(windows) { "where.exe" } else { "which" };
-
-#[derive(PartialEq, Clone, Copy, Debug)]
-pub enum ActiveView {
-    Themes,
-    Fonts,
-    Plugins,
-}
-
-#[derive(Debug, PartialEq, Clone)]
-pub struct SystemSpecs {
-    pub is_pwsh_7: bool,
-    pub has_nerd_font: bool,
-    pub is_windows_terminal: bool,
-}
-
-#[derive(PartialEq, Debug)]
-pub enum AppState {
-    Onboarding(SystemSpecs),
-    Welcome, // Pantalla de bienvenida mejorada con acciones rápidas
-    Loading,
-    Main,
-    DependencyMissing,
-    InstallingDependency {
-        current_action: String,
-        log: Vec<String>,
-    },
-    Installing(String),
-    Success(String),
-    FontSuccess(String),
-    PluginSuccess(String),
-    Error(String),
-}
-
-#[derive(Clone, Debug, PartialEq, Default)]
-pub struct FontAsset {
-    pub name: String,
-}
+// ... (rest of the code remains the same)
 
 /// Metadata for a PowerShell module/extension
 #[derive(Clone, Debug)]
@@ -64,17 +19,8 @@ pub struct PluginAsset {
 pub enum AppMessage {
     ThemesLoaded(Vec<String>),
     FontsLoaded(Vec<FontAsset>),
-    ThemePreviewLoaded {
-        theme: String,
-        preview: String,
-    },
-    #[allow(dead_code)]
-    FontInstalled(String),
-    #[allow(dead_code)]
-    PluginInstalled(String),
-    InstallProgress {
-        line: String,
-    },
+    ThemePreviewLoaded { theme: String, preview: String },
+    InstallProgress { line: String },
     InstallFinished,
     Error(String),
 }
