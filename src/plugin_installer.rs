@@ -1,14 +1,13 @@
-//! Módulo de instalación mejorada de plugins para PoshBuddy
+//! Enhanced plugin installation module for PoshBuddy
 //!
-//! Proporciona pre-checks, transacciones y rollback automático
-//! para instalaciones de módulos PowerShell.
+//! Provides pre-checks, transactions, and automatic rollback
+//! for PowerShell module installations.
 
 use std::io;
 use std::path::Path;
 use std::process::Command;
 
-/// Resultado de una instalación de plugin
-#[derive(Debug, Clone)]
+#[allow(dead_code)]
 pub struct InstallResult {
     pub success: bool,
     pub module_name: String,
@@ -17,8 +16,7 @@ pub struct InstallResult {
     pub rolled_back: bool,
 }
 
-/// Pre-checks antes de instalación
-#[derive(Debug, Clone)]
+#[allow(dead_code)]
 pub struct PreCheckResult {
     pub can_install: bool,
     pub warnings: Vec<String>,
@@ -29,6 +27,7 @@ pub struct PreCheckResult {
 }
 
 impl PreCheckResult {
+    #[allow(dead_code)]
     pub fn new() -> Self {
         Self {
             can_install: true,
@@ -40,6 +39,7 @@ impl PreCheckResult {
         }
     }
 
+    #[allow(dead_code)]
     pub fn is_ready(&self) -> bool {
         self.can_install && self.errors.is_empty() && self.has_powershell
     }
@@ -51,33 +51,35 @@ impl Default for PreCheckResult {
     }
 }
 
-/// Instalador de plugins con soporte transaccional
+/// Plugin installer with transactional support
 pub struct PluginInstaller;
 
 impl PluginInstaller {
-    /// Crea un nuevo instalador
+    /// Creates a new installer
+    #[allow(dead_code)]
     pub fn new() -> Self {
         Self
     }
 
-    /// Ejecuta pre-checks antes de la instalación
+    /// Runs pre-checks before installation
+    #[allow(dead_code)]
     pub fn pre_check(&self, module_name: &str) -> PreCheckResult {
         let mut result = PreCheckResult::new();
 
-        // 1. Verificar que PowerShell está disponible
+        // 1. Verify PowerShell is available
         result.has_powershell = Self::check_powershell_available();
         if !result.has_powershell {
-            result.errors.push("PowerShell no está disponible".to_string());
+            result.errors.push("PowerShell is not available".to_string());
             result.can_install = false;
             return result;
         }
 
-        // 2. Verificar si el módulo ya está instalado
+        // 2. Check if the module is already installed
         match Self::check_module_installed(module_name) {
             Ok(true) => {
                 result.module_exists = true;
                 result.warnings.push(format!(
-                    "El módulo '{}' ya está instalado. Se actualizará si hay nueva versión.",
+                    "Module '{}' is already installed. It will be updated if a new version exists.",
                     module_name
                 ));
             }
@@ -86,19 +88,19 @@ impl PluginInstaller {
             }
             Err(e) => {
                 result.warnings.push(format!(
-                    "No se pudo verificar si el módulo existe: {}",
+                    "Could not verify if module exists: {}",
                     e
                 ));
             }
         }
 
-        // 3. Verificar permisos de ejecución de scripts
+        // 3. Check script execution permissions
         match Self::check_execution_policy() {
             Ok(policy) => {
                 if policy.to_lowercase().contains("restricted") {
                     result.errors.push(
-                        "La política de ejecución de PowerShell está restringida. \
-                         Ejecuta: Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser"
+                        "PowerShell execution policy is restricted. \
+                         Run: Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser"
                             .to_string(),
                     );
                     result.can_install = false;
@@ -108,24 +110,25 @@ impl PluginInstaller {
             }
             Err(e) => {
                 result.warnings.push(format!(
-                    "No se pudo verificar la política de ejecución: {}",
+                    "Could not verify execution policy: {}",
                     e
                 ));
             }
         }
 
-        // 4. Verificar conectividad a PSGallery (simplificado)
+        // 4. Verify connectivity to PSGallery (simplified)
         if !Self::check_internet_connectivity() {
             result.warnings.push(
-                "No se detectó conexión a internet. La instalación puede fallar.".to_string()
+                "No internet connection detected. Installation might fail.".to_string()
             );
         }
 
         result
     }
 
-    /// Instala un módulo con transacción completa
-    /// Hace backup del perfil, intenta instalar, y hace rollback si falla
+    /// Installs a module with full transaction
+    /// Backs up the profile, attempts installation, and rolls back if it fails
+    #[allow(dead_code)]
     pub async fn install_with_transaction(
         &self,
         name: &str,
@@ -141,46 +144,46 @@ impl PluginInstaller {
             rolled_back: false,
         };
 
-        // Paso 1: Pre-checks
+        // Step 1: Pre-checks
         let pre_check = self.pre_check(module_name);
         if !pre_check.is_ready() {
             result.message = format!(
-                "Pre-checks fallidos: {}",
+                "Pre-checks failed: {}",
                 pre_check.errors.join("; ")
             );
             return Ok(result);
         }
 
-        // Paso 2: Backup del perfil antes de modificar
+        // Step 2: Backup profile before modifying
         let backup_result = if profile_path.exists() {
             backup_manager.backup_profile(
                 profile_path,
-                &format!("Pre-instalación de plugin: {}", name)
+                &format!("Pre-installation of plugin: {}", name)
             ).ok()
         } else {
             None
         };
 
-        // Paso 3: Intentar instalar el módulo
+        // Step 3: Attempt to install the module
         match self.install_module(module_name).await {
             Ok(version) => {
                 result.success = true;
                 result.version = version;
-                result.message = format!("Módulo '{}' instalado exitosamente", module_name);
+                result.message = format!("Module '{}' installed successfully", module_name);
             }
             Err(e) => {
-                result.message = format!("Error instalando '{}': {}", module_name, e);
+                result.message = format!("Error installing '{}': {}", module_name, e);
 
-                // Paso 4: Rollback si la instalación falló y tenemos backup
+                // Step 4: Rollback if installation failed and we have a backup
                 if let Some(backup_info) = backup_result {
                     match backup_manager.restore_backup(&backup_info, profile_path) {
                         Ok(_) => {
                             result.rolled_back = true;
-                            result.message.push_str(" (Perfil restaurado del backup)");
+                            result.message.push_str(" (Profile restored from backup)");
                         }
                         Err(restore_err) => {
                             result.message.push_str(&format!(
-                                " (ADVERTENCIA: No se pudo restaurar el backup: {})",
+                                " (WARNING: Could not restore backup: {})",
                                 restore_err
                             ));
                         }
@@ -192,7 +195,8 @@ impl PluginInstaller {
         Ok(result)
     }
 
-    /// Instala un módulo PowerShell
+    /// Installs a PowerShell module
+    #[allow(dead_code)]
     async fn install_module(&self, module_name: &str) -> Result<Option<String>, io::Error> {
         let output = tokio::process::Command::new("powershell")
             .args([
@@ -225,6 +229,7 @@ impl PluginInstaller {
     }
 
     /// Verifica si PowerShell está disponible
+    #[allow(dead_code)]
     fn check_powershell_available() -> bool {
         Command::new("pwsh")
             .args(["-Command", "$PSVersionTable.PSVersion.Major"])
@@ -240,7 +245,8 @@ impl PluginInstaller {
             })
     }
 
-    /// Verifica si un módulo ya está instalado
+    /// Checks if a module is already installed
+    #[allow(dead_code)]
     fn check_module_installed(module_name: &str) -> Result<bool, io::Error> {
         let output = Command::new("pwsh")
             .args([
@@ -262,7 +268,8 @@ impl PluginInstaller {
         }
     }
 
-    /// Verifica la política de ejecución de PowerShell
+    /// Checks PowerShell execution policy
+    #[allow(dead_code)]
     fn check_execution_policy() -> Result<String, io::Error> {
         let output = Command::new("pwsh")
             .args([
@@ -280,9 +287,10 @@ impl PluginInstaller {
         }
     }
 
-    /// Verifica conectividad básica a internet
+    /// Checks basic internet connectivity
+    #[allow(dead_code)]
     fn check_internet_connectivity() -> bool {
-        // Intenta hacer ping a un DNS de Google como prueba simple
+        // Attempts to ping Google DNS as a simple test
         #[cfg(windows)]
         {
             Command::new("ping")
@@ -301,7 +309,8 @@ impl PluginInstaller {
         }
     }
 
-    /// Desinstala un módulo
+    /// Uninstalls a module
+    #[allow(dead_code)]
     pub async fn uninstall_module(&self, module_name: &str) -> Result<(), io::Error> {
         let output = tokio::process::Command::new("powershell")
             .args([
@@ -324,7 +333,8 @@ impl PluginInstaller {
         }
     }
 
-    /// Obtiene información de un módulo instalado
+    /// Gets information about an installed module
+    #[allow(dead_code)]
     pub fn get_module_info(&self, module_name: &str) -> Result<Option<ModuleInfo>, io::Error> {
         let output = Command::new("pwsh")
             .args([
@@ -342,7 +352,7 @@ impl PluginInstaller {
                 return Ok(None);
             }
 
-            // Parse simple del output
+            // Simple output parsing
             let mut name = None;
             let mut version = None;
             let mut description = None;
@@ -376,8 +386,9 @@ impl Default for PluginInstaller {
     }
 }
 
-/// Información de un módulo instalado
+/// Information about an installed module
 #[derive(Debug, Clone)]
+#[allow(dead_code)]
 pub struct ModuleInfo {
     pub name: String,
     pub version: String,

@@ -25,6 +25,7 @@ pub struct BackupInfo {
 }
 
 /// Gestor de backups para perfiles de PowerShell
+#[derive(Clone)]
 pub struct BackupManager {
     backup_dir: PathBuf,
     max_backups_per_file: usize,
