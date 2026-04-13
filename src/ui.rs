@@ -138,15 +138,18 @@ fn render_title_bar(f: &mut Frame, area: Rect, app: &App) {
 // ── Tab bar (3 lines with border bottom) ──────────────────────────────────────
 fn render_tab_bar(f: &mut Frame, area: Rect, app: &App) {
     let tabs: &[(&str, ActiveView)] = &[
-        ("[1] Themes", ActiveView::Themes),
-        ("[2] Fonts", ActiveView::Fonts),
-        ("[3] Segments", ActiveView::Segments),
+        ("  [1] Themes ", ActiveView::Themes),
+        ("  [2] Fonts  ", ActiveView::Fonts),
+        ("  [3] Segments", ActiveView::Segments),
     ];
 
-    let w = area.width / 3;
     let chunks = Layout::default()
         .direction(Direction::Horizontal)
-        .constraints([Constraint::Length(w), Constraint::Length(w), Constraint::Min(0)])
+        .constraints([
+            Constraint::Percentage(33),
+            Constraint::Percentage(34),
+            Constraint::Percentage(33),
+        ])
         .split(area);
 
     for (i, (label, view)) in tabs.iter().enumerate() {
@@ -156,19 +159,28 @@ fn render_tab_bar(f: &mut Frame, area: Rect, app: &App) {
             ActiveView::Fonts    => app.filtered_fonts().len(),
             ActiveView::Segments => app.filtered_segments().len(),
         };
-        let text = format!("  {} ({})  ", label, count);
+
+        // Text composition
+        let count_text = format!("({}) ", count);
+        let text = Line::from(vec![
+            Span::styled(label.to_string(), Style::default().add_modifier(if is_active { Modifier::BOLD } else { Modifier::empty() })),
+            Span::raw(" "),
+            Span::styled(count_text, Style::default().fg(if is_active { C_BLACK } else { C_DIM })),
+        ]);
+
         let (fg, bg, border_fg) = if is_active {
             (C_BLACK, C_ACCENT, C_ACCENT)
         } else {
-            (C_DIM, Color::Reset, C_DIM)
+            (C_WHITE, Color::Reset, C_DIM)
         };
+
         f.render_widget(
             Paragraph::new(text)
                 .alignment(Alignment::Center)
-                .style(Style::default().fg(fg).bg(bg).add_modifier(if is_active { Modifier::BOLD } else { Modifier::empty() }))
+                .style(Style::default().fg(fg).bg(bg))
                 .block(
                     Block::default()
-                        .borders(Borders::BOTTOM)
+                        .borders(Borders::ALL)
                         .border_style(Style::default().fg(border_fg)),
                 ),
             chunks[i],
@@ -609,26 +621,26 @@ fn render_welcome(f: &mut Frame, area: Rect, app: &App) {
 
     // ── Left: Quick Actions ─────────────────────────────────────────────────
     let action_defs: &[(&str, &str, usize)] = &[
-        ("1", "Random Theme",             0),
-        ("2", "Install all Nerd Fonts",    1), 
-        ("3", "Toggle Terminal-Icons",    2),
-        ("4", "Run Diagnostics (Soon)",   3),
-        ("5", "View Backups",             4),
+        ("R", "Random Theme",             0),
+        ("N", "Install Nerd Fonts",       1), 
+        ("I", "Toggle Terminal-Icons",    2),
+        ("D", "Diagnostics (Soon)",       3),
+        ("V", "View Backups Info",        4),
         ("B", "Create Manual Backup",     8),
-        ("T", "Go to Themes",             5),
-        ("F", "Go to Fonts",              6),
-        ("S", "Go to Segments",           7),
+        ("1", "Go to Themes",             5),
+        ("2", "Go to Fonts",              6),
+        ("3", "Go to Segments",           7),
     ];
 
     let mut items: Vec<ListItem> = Vec::new();
     for (display_i, (key, label, action_idx)) in action_defs.iter().enumerate() {
-        if display_i == 5 {
+        if display_i == 6 {
             items.push(ListItem::new(Line::from(vec![
                 Span::styled("  ─────────────────────── ", Style::default().fg(C_DIM)),
             ])));
         }
         let is_selected = *action_idx == app.welcome_selected_action;
-        let is_disabled = *action_idx == 1 || *action_idx == 3;
+        let is_disabled = *action_idx == 3; // Diagnostics soon
         let key_style = if is_disabled {
             Style::default().fg(C_DIM)
         } else if is_selected {

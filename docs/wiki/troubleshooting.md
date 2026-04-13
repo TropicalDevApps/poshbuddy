@@ -1,8 +1,8 @@
 # PoshBuddy Wiki: Troubleshooting Procedures
 
-> **Updated**: 2026-04-13  
-> **Version**: v0.3.3-rust  
-> **Read Time**: 5 min  
+> **Updated**: 2026-04-13
+> **Version**: v0.3.4-rust
+> **Read Time**: 5 min
 
 PoshBuddy categorizes issues into deterministic symptoms. If your issue persists after following these directives, consult the system logs.
 
@@ -40,6 +40,14 @@ stateDiagram-v2
 - **Fix 2**: Execute `. $PROFILE` to force-reload configuration in the active window.
 - **Fix 3**: Validate profile paths. PoshBuddy detects standard paths for PS 5.1 and 7. Check the **Diagnostic** screen to ensure your profile path is listed under "Detected Profiles".
 
+## Symptom: Static Theme Preview (Always shows current prompt)
+
+**Cause**: Environment variable override or extension mismatch.
+
+- **Fix 1**: Ensure you are running PoshBuddy **v0.3.4** or higher, which implements mandatory environment isolation (`POSH_THEME` clearing).
+- **Fix 2**: Check theme file naming. PoshBuddy v0.3.4 supports both `.omp.json` and standard `.json` extensions dynamically.
+- **Fix 3**: Verify `oh-my-posh` is in your system PATH and accessible.
+
 ## Symptom: Terminal latency / Slow startup
 
 **Cause**: Excessive module imports in the PowerShell profile.
@@ -54,10 +62,10 @@ stateDiagram-v2
 
 ## Symptom: "Timeout generating preview"
 
-**Cause**: External `oh-my-posh` binary exceeded the 2-second render guard.
+**Cause**: External `oh-my-posh` binary exceeded the render guard.
 
 - **Fix 1**: Verify the selected theme file integrity.
-- **Fix 2**: Reduce system CPU load; the security guard triggers if the render cannot complete within the 2s safety window.
+- **Fix 2**: Reduce system CPU load; the security guard triggers if the render cannot complete within the safety window.
 
 ---
 **Return to**: [Wiki Dashboard](./index.md)

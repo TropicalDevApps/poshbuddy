@@ -47,7 +47,7 @@ pub async fn download_theme_file(name: &str, url: &str, target_dir: &std::path::
             }
             match resp.bytes().await {
                 Ok(bytes) => {
-                    if let Err(e) = std::fs::write(&file_path, &bytes) {
+                    if let Err(e) = tokio::fs::write(&file_path, &bytes).await {
                         return Err(format!("Disk write failed: {}", e));
                     }
                     Ok(file_path)
@@ -81,7 +81,7 @@ pub async fn download_to_temp(name: &str, url: &str) -> Result<std::path::PathBu
     let temp_name = format!("poshbuddy_preview_{}.omp.json", name);
     let temp_path = temp_dir.join(temp_name);
 
-    std::fs::write(&temp_path, &bytes).map_err(|e| format!("Failed to write preview file: {}", e))?;
+    tokio::fs::write(&temp_path, &bytes).await.map_err(|e| format!("Failed to write preview file: {}", e))?;
 
     Ok(temp_path)
 }
