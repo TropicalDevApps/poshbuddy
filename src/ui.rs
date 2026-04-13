@@ -4,7 +4,7 @@ use ratatui::{
     layout::{Alignment, Constraint, Direction, Layout, Rect},
     style::{Color, Modifier, Style},
     text::{Line, Span},
-    widgets::{Block, Borders, Clear, List, ListItem, Paragraph, Wrap},
+    widgets::{Block, Borders, Clear, List, ListItem, Paragraph, Wrap, Padding},
     Frame,
 };
 
@@ -61,9 +61,9 @@ fn render_main(f: &mut Frame, area: Rect, app: &mut App) {
     render_main_footer(f, root[3], app);
 
     // Floating modals — rendered on top of everything
-    match app.state.clone() {
+    match &app.state {
         AppState::Success(msg) => {
-            render_modal(f, area, " ✓ Applied ", &msg, C_ACTIVE, "any key to dismiss");
+            render_modal(f, area, " ✓ Applied ", &msg, C_ACTIVE, "any key");
         }
         AppState::FontSuccess(name) => {
             render_modal(f, area, " ✓ Font Installed ", &format!("'{}' installed successfully.", name), C_LOCAL, "any key to continue");
@@ -75,7 +75,18 @@ fn render_main(f: &mut Frame, area: Rect, app: &mut App) {
             render_modal(f, area, " ⏳ Working ", &format!("Processing: {}\n\nThis may take a moment...", name), C_ACCENT, "please wait");
         }
         AppState::Error(msg) => {
-            render_modal(f, area, " ✗ Error ", &msg, C_ERROR, "any key to dismiss");
+            render_modal(f, area, " ✗ Error ", &msg, C_ERROR, "any key");
+        }
+        AppState::ApplyingProgress { name, stage, progress } => {
+            let title = match stage {
+                0 => " ⬇ Downloading ",
+                1 => " 🔍 Verifying ",
+                2 => " 💾 Backing up ",
+                3 => " ⚡ Applying ",
+                _ => " ⏳ Working ",
+            };
+            let msg = format!("Theme: {}\n\nProgress: {}%", name, progress);
+            render_modal(f, area, title, &msg, C_ACCENT, "please wait");
         }
         _ => {}
     }
@@ -169,11 +180,11 @@ fn render_tab_bar(f: &mut Frame, area: Rect, app: &App) {
 fn render_main_footer(f: &mut Frame, area: Rect, app: &App) {
     let hint = match app.active_view {
         ActiveView::Themes =>
-            "  ↑↓ Navigate  │  Enter Apply  │  Type Search  │  Bksp Delete  │  Tab Next Tab  │  Ctrl+R Restore Backup  │  Q Quit",
+            "  ↑↓ Navigate  │  Enter Apply  │  Type Search  │  Esc/H Dashboard  │  Tab Next Tab  │  Ctrl+R Restore  │  Q Quit",
         ActiveView::Fonts =>
-            "  ↑↓ Navigate  │  Enter Install  │  Type Search  │  Bksp Delete  │  Tab Next Tab  │  Ctrl+R Restore Backup  │  Q Quit",
+            "  ↑↓ Navigate  │  Enter Install  │  Type Search  │  Esc/H Dashboard  │  Tab Next Tab  │  Ctrl+R Restore  │  Q Quit",
         ActiveView::Segments =>
-            "  ↑↓ Navigate  │  Enter Toggle  │  Type Search  │  Bksp Delete  │  Tab Next Tab  │  Ctrl+R Restore Backup  │  Q Quit",
+            "  ↑↓ Navigate  │  Enter Toggle  │  Type Search  │  Esc/H Dashboard  │  Tab Next Tab  │  Ctrl+R Restore  │  Q Quit",
     };
     f.render_widget(
         Paragraph::new(hint).style(Style::default().fg(C_DIM)),
@@ -598,14 +609,15 @@ fn render_welcome(f: &mut Frame, area: Rect, app: &App) {
 
     // ── Left: Quick Actions ─────────────────────────────────────────────────
     let action_defs: &[(&str, &str, usize)] = &[
-        ("1", "Random Theme",          0),
-        ("2", "Install Nerd Font",     1),
-        ("3", "Toggle Terminal-Icons", 2),
-        ("4", "Run Diagnostics",       3),
-        ("5", "View Backups",          4),
-        ("T", "Go to Themes",          5),
-        ("F", "Go to Fonts",           6),
-        ("S", "Go to Segments",        7),
+        ("1", "Random Theme",             0),
+        ("2", "Install all Nerd Fonts",    1), 
+        ("3", "Toggle Terminal-Icons",    2),
+        ("4", "Run Diagnostics (Soon)",   3),
+        ("5", "View Backups",             4),
+        ("B", "Create Manual Backup",     8),
+        ("T", "Go to Themes",             5),
+        ("F", "Go to Fonts",              6),
+        ("S", "Go to Segments",           7),
     ];
 
     let mut items: Vec<ListItem> = Vec::new();
@@ -616,12 +628,17 @@ fn render_welcome(f: &mut Frame, area: Rect, app: &App) {
             ])));
         }
         let is_selected = *action_idx == app.welcome_selected_action;
-        let key_style = if is_selected {
+        let is_disabled = *action_idx == 1 || *action_idx == 3;
+        let key_style = if is_disabled {
+            Style::default().fg(C_DIM)
+        } else if is_selected {
             Style::default().fg(C_BLACK).bg(C_ACCENT).add_modifier(Modifier::BOLD)
         } else {
             Style::default().fg(C_ACCENT).add_modifier(Modifier::BOLD)
         };
-        let label_style = if is_selected {
+        let label_style = if is_disabled {
+            Style::default().fg(C_DIM)
+        } else if is_selected {
             Style::default().fg(C_WHITE).add_modifier(Modifier::BOLD)
         } else {
             Style::default().fg(Color::Gray)
@@ -711,42 +728,109 @@ fn render_welcome(f: &mut Frame, area: Rect, app: &App) {
         right[0],
     );
 
-    // Resources panel
-    let res_lines = vec![
+    // Latest Changes panel (v0.3.3)
+    let changelog_lines = vec![
         Line::from(""),
         Line::from(vec![
-            Span::styled("  Oh My Posh  ", Style::default().fg(C_DIM)),
-            Span::styled("ohmyposh.dev", Style::default().fg(C_ACCENT)),
+            Span::styled("  v0.3.3 ", Style::default().fg(C_ACCENT).add_modifier(Modifier::BOLD)),
+            Span::styled(" - Mass Font Installer", Style::default().fg(C_WHITE)),
         ]),
         Line::from(vec![
-            Span::styled("  Nerd Fonts  ", Style::default().fg(C_DIM)),
-            Span::styled("nerdfonts.com", Style::default().fg(C_ACCENT)),
+            Span::styled("  ● ", Style::default().fg(C_ACCENT)),
+            Span::styled("Install all Nerd Fonts with one click.", Style::default().fg(Color::Gray)),
         ]),
         Line::from(vec![
-            Span::styled("  PoshBuddy   ", Style::default().fg(C_DIM)),
-            Span::styled("github.com/julesklord/poshbuddy", Style::default().fg(C_ACCENT)),
+            Span::styled("  ● ", Style::default().fg(C_ACCENT)),
+            Span::styled("Professional progress bar & safety checks.", Style::default().fg(Color::Gray)),
+        ]),
+        Line::from(vec![
+            Span::styled("  ● ", Style::default().fg(C_ACCENT)),
+            Span::styled("New version dashboard panel.", Style::default().fg(Color::Gray)),
         ]),
         Line::from(""),
-        Line::from(vec![Span::styled(
-            "  Profiles are backed up before every change.",
-            Style::default().fg(C_DIM),
-        )]),
+        Line::from(vec![
+            Span::styled("  v0.3.2 ", Style::default().fg(C_ACTIVE).add_modifier(Modifier::BOLD)),
+            Span::styled(" - Navigation & Localization", Style::default().fg(C_WHITE)),
+        ]),
+        Line::from(vec![
+            Span::styled("  ● ", Style::default().fg(C_ACTIVE)),
+            Span::styled("100% English & Global Nav (Esc/H).", Style::default().fg(Color::Gray)),
+        ]),
     ];
 
     f.render_widget(
-        Paragraph::new(res_lines).block(
+        Paragraph::new(changelog_lines).block(
             Block::default()
                 .borders(Borders::ALL)
                 .border_style(Style::default().fg(C_DIM))
-                .title(" Resources "),
+                .title(" Latest Changes "),
         ),
         right[1],
     );
 
+    // ── Overlays ───────────────────────────────────────────────────────────
+    
+    // 1. Confirm Mass Font Installation
+    if app.state == AppState::ConfirmMassFontInstallation {
+        let area = centered_rect(60, 25, f.size());
+        f.render_widget(Clear, area);
+        let block = Block::default()
+            .title(" Confirm Mass Installation ")
+            .borders(Borders::ALL)
+            .border_style(Style::default().fg(C_ACCENT));
+        
+        let text = vec![
+            Line::from(""),
+            Line::from("  You are about to install ALL Nerd Fonts available."),
+            Line::from("  This process may take significant time and bandwidth."),
+            Line::from(""),
+            Line::from(vec![
+                Span::raw("  Do you want to proceed? "),
+                Span::styled("(y) Yes", Style::default().fg(C_LOCAL).add_modifier(Modifier::BOLD)),
+                Span::raw(" / "),
+                Span::styled("(n) No", Style::default().fg(C_ERROR).add_modifier(Modifier::BOLD)),
+            ]),
+        ];
+        f.render_widget(Paragraph::new(text).block(block), area);
+    }
+    
+    // 2. Installation Progress Gauge
+    if let AppState::InstallingAllFonts { progress, current_font, index, total } = &app.state {
+        let area = centered_rect(70, 20, f.size());
+        f.render_widget(Clear, area);
+        let block = Block::default()
+            .title(format!(" Installing Nerd Fonts ({}/{}) ", index, total))
+            .borders(Borders::ALL)
+            .border_style(Style::default().fg(C_ACCENT));
+
+        let gauge = ratatui::widgets::Gauge::default()
+            .block(Block::default().padding(Padding::new(2, 2, 1, 1)))
+            .gauge_style(Style::default().fg(C_ACCENT).bg(C_DIM))
+            .percent(*progress as u16)
+            .label(format!("{:.1}%", progress));
+
+        let layout = Layout::default()
+            .direction(Direction::Vertical)
+            .constraints([Constraint::Length(3), Constraint::Length(3)])
+            .split(block.inner(area));
+
+        f.render_widget(block, area);
+        f.render_widget(
+            Paragraph::new(vec![
+                Line::from(vec![
+                    Span::raw("  Current: "),
+                    Span::styled(current_font, Style::default().fg(C_WHITE).add_modifier(Modifier::BOLD)),
+                ]),
+            ]),
+            layout[0],
+        );
+        f.render_widget(gauge, layout[1]);
+    }
+
     // Footer
     f.render_widget(
         Paragraph::new(
-            "  ↑↓ Navigate  │  Enter Execute  │  1-5 Quick Action  │  T/F/S Jump to View  │  Q Quit",
+            "  ↑↓ Navigate  │  Enter Execute  │  1-5/B Action  │  T/F/S Go to View  │  Q Quit",
         )
         .style(Style::default().fg(C_DIM)),
         root[2],

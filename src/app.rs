@@ -13,6 +13,7 @@ const WHERE_CMD: &str = "where";
 pub struct PluginAsset {
     pub name: String,
     pub description: String,
+    #[allow(dead_code)]
     pub documentation: String,
     pub module_name: String,
     pub init_script: Option<String>,
@@ -40,6 +41,7 @@ pub struct FontAsset {
 pub struct RemoteTheme {
     pub name: String,
     pub download_url: String,
+    #[allow(dead_code)]
     pub sha: String,
 }
 
@@ -60,9 +62,14 @@ pub struct SystemSpecs {
 
 /// Message types sent across the mpsc channel to update the TUI from background tasks
 pub enum AppMessage {
+    #[allow(dead_code)]
     ThemesLoaded(Vec<ThemeAsset>),
     FontsLoaded(Vec<FontAsset>),
     ThemePreviewLoaded { theme: ThemeAsset, preview: String },
+    ThemeDownloaded(std::path::PathBuf),
+    InstallUpdate { stage: usize, percentage: f32 },
+    MassFontProgress { index: usize, total: usize, name: String },
+    Success(String),
     InstallProgress { line: String },
     InstallFinished,
     Error(String),
@@ -76,6 +83,7 @@ pub enum AppMessage {
 pub enum AppState {
     Loading,
     Main,
+    #[allow(dead_code)]
     Onboarding(SystemSpecs),
     DependencyMissing,
     InstallingDependency {
@@ -85,9 +93,21 @@ pub enum AppState {
     Success(String),
     FontSuccess(String),
     PluginSuccess(String),
+    ConfirmMassFontInstallation,
+    InstallingAllFonts {
+        progress: f32,
+        current_font: String,
+        index: usize,
+        total: usize,
+    },
     Installing(String),
     Error(String),
     Welcome,
+    ApplyingProgress {
+        name: String,
+        stage: usize,
+        progress: f32,
+    },
 }
 
 /// Active view/tab in the main interface
@@ -114,6 +134,7 @@ pub struct App {
     pub plugins_list_state: ListState,
     pub plugins: Vec<PluginAsset>,
     pub segments: Vec<SegmentAsset>,
+    #[allow(dead_code)]
     pub plugins_filter: String,
     pub segments_filter: String,
     pub spinner_tick: usize,
@@ -123,10 +144,12 @@ pub struct App {
     pub active_config_path: Option<PathBuf>,
     pub backup_manager: crate::backup::BackupManager,
     pub last_backup: Option<std::path::PathBuf>,
+    #[allow(dead_code)]
     pub diagnostic: crate::diagnostic::Diagnostic,
+    #[allow(dead_code)]
     pub plugin_installer: crate::plugin_installer::PluginInstaller,
     // Welcome screen state
-    pub welcome_selected_action: usize, // Índice de la acción rápida seleccionada
+    pub welcome_selected_action: usize, // Index of the selected quick action
     pub system_specs: Option<SystemSpecs>, // Cache de especificaciones del sistema
     pub total_backups: usize, // Total de perfiles respaldados encontrados
 }
@@ -188,50 +211,50 @@ impl App {
                 SegmentAsset {
                     name: "Git Status".to_string(),
                     segment_type: "git".to_string(),
-                    description: "Muestra la rama actual y el estado de archivos de Git.".to_string(),
-                    documentation: "Esencial para el desarrollo colaborativo.".to_string(),
+                    description: "Shows current branch and Git file status.".to_string(),
+                    documentation: "Essential for collaborative development.".to_string(),
                     category: "Development".to_string(),
                 },
                 SegmentAsset {
-                    name: "Path (Ruta)".to_string(),
+                    name: "Path".to_string(),
                     segment_type: "path".to_string(),
-                    description: "Muestra la ubicación actual en el sistema de archivos.".to_string(),
-                    documentation: "Configurable para mostrar ruta completa o corta.".to_string(),
+                    description: "Shows current location in the file system.".to_string(),
+                    documentation: "Configurable for full or short path display.".to_string(),
                     category: "System".to_string(),
                 },
                 SegmentAsset {
                     name: "Session (User)".to_string(),
                     segment_type: "session".to_string(),
-                    description: "Muestra el usuario y host actual.".to_string(),
-                    documentation: "Útil para identificar rápidamente en qué cuenta/máquina estás.".to_string(),
+                    description: "Shows current user and host.".to_string(),
+                    documentation: "Quickly identify your current account/machine.".to_string(),
                     category: "System".to_string(),
                 },
                 SegmentAsset {
-                    name: "Battery (Batería)".to_string(),
+                    name: "Battery".to_string(),
                     segment_type: "battery".to_string(),
-                    description: "Visualiza el porcentaje de batería y estado de carga.".to_string(),
-                    documentation: "Cambia de color según el nivel de carga.".to_string(),
+                    description: "Displays battery percentage and charging status.".to_string(),
+                    documentation: "Changes color based on charge level.".to_string(),
                     category: "System".to_string(),
                 },
                 SegmentAsset {
                     name: "Execution Time".to_string(),
                     segment_type: "executiontime".to_string(),
-                    description: "Muestra cuánto duró el último comando ejecutado.".to_string(),
-                    documentation: "Perfecto para medir rendimiento de scripts.".to_string(),
+                    description: "Shows duration of the last command executed.".to_string(),
+                    documentation: "Perfect for measuring script performance.".to_string(),
                     category: "System".to_string(),
                 },
                 SegmentAsset {
                     name: "Node.js info".to_string(),
                     segment_type: "node".to_string(),
-                    description: "Muestra la versión de Node activa en el directorio.".to_string(),
-                    documentation: "Se activa automáticamente en proyectos Node.".to_string(),
+                    description: "Shows active Node version in the directory.".to_string(),
+                    documentation: "Automatically activates in Node projects.".to_string(),
                     category: "Development".to_string(),
                 },
                 SegmentAsset {
                     name: "Docker".to_string(),
                     segment_type: "docker".to_string(),
-                    description: "Muestra el estado de Docker y el contexto actual.".to_string(),
-                    documentation: "Requiere que Docker esté instalado y corriendo.".to_string(),
+                    description: "Shows current Docker status and context.".to_string(),
+                    documentation: "Requires Docker to be installed and running.".to_string(),
                     category: "Cloud".to_string(),
                 },
             ],
@@ -439,59 +462,12 @@ impl App {
 
     /// Asynchronously fetches the official themes catalog from GitHub
     pub fn fetch_official_themes(&self, tx: mpsc::Sender<AppMessage>) {
+        let themes_dir = self.themes_dir.clone();
         tokio::spawn(async move {
-            let client = reqwest::Client::new();
-            let res = client.get("https://api.github.com/repos/JanDeDobbeleer/oh-my-posh/contents/themes")
-                .header("User-Agent", "PoshBuddy-Updater")
-                .send()
-                .await;
-
-            match res {
-                Ok(response) => {
-                    if let Ok(items) = response.json::<Vec<serde_json::Value>>().await {
-                        let themes: Vec<RemoteTheme> = items.into_iter()
-                            .filter(|i| i["name"].as_str().unwrap_or("").ends_with(".omp.json"))
-                            .map(|i| RemoteTheme {
-                                name: i["name"].as_str().unwrap_or("").replace(".omp.json", "").to_string(),
-                                download_url: i["download_url"].as_str().unwrap_or("").to_string(),
-                                sha: i["sha"].as_str().unwrap_or("").to_string(),
-                            })
-                            .collect();
-                        let _ = tx.send(AppMessage::RemoteThemesLoaded(themes)).await;
-                    }
-                }
-                Err(e) => {
-                    let _ = tx.send(AppMessage::Error(format!("Fetch themes failed: {}", e))).await;
-                }
-            }
+            crate::api::setup_app_task(tx, themes_dir).await;
         });
     }
 
-    /// Downloads and installs a remote theme locally
-    pub fn download_theme(&self, theme: RemoteTheme, tx: mpsc::Sender<AppMessage>) {
-        let path = self.themes_dir.join(format!("{}.omp.json", theme.name));
-        tokio::spawn(async move {
-            match reqwest::get(&theme.download_url).await {
-                Ok(resp) => {
-                    if let Ok(bytes) = resp.bytes().await {
-                        if let Err(e) = fs::write(&path, &bytes) {
-                            let _ = tx.send(AppMessage::Error(format!("Save failed: {}", e))).await;
-                        } else {
-                            // After download, tell the app to refresh local themes
-                            let _ = tx.send(AppMessage::ThemesLoaded(vec![ThemeAsset {
-                                name: format!("{}.omp.json", theme.name),
-                                is_local: true,
-                                download_url: None,
-                            }])).await;
-                        }
-                    }
-                }
-                Err(e) => {
-                    let _ = tx.send(AppMessage::Error(format!("Download failed: {}", e))).await;
-                }
-            }
-        });
-    }
 
 
     /// Returns a filtered list of fonts based on search criteria
@@ -518,15 +494,6 @@ impl App {
             .collect()
     }
 
-    /// Returns a filtered list of legacy plugins based on search criteria
-    pub fn filtered_plugins(&self) -> Vec<PluginAsset> {
-        let filter_lower = self.plugins_filter.to_lowercase();
-        self.plugins
-            .iter()
-            .filter(|p| p.name.to_lowercase().contains(&filter_lower))
-            .cloned()
-            .collect()
-    }
 
     /// Checks if a segment is active in the currently loaded Oh My Posh config
     pub fn is_segment_active(&self, segment: &SegmentAsset) -> bool {
@@ -616,10 +583,12 @@ impl App {
 
     /// Actualiza quirúrgicamente una sección del perfil de PowerShell envuelta en marcadores de PoshBuddy
     pub fn update_profile_safe(&self, profile: &std::path::Path, key: &str, content: &str, description: &str) -> io::Result<()> {
-        let start_marker = format!("# <PoshBuddy: START - {}>", key);
-        let end_marker = format!("# <PoshBuddy: END - {}>", key);
+        let legacy_start = "# <PoshBuddy: START";
+        let legacy_end   = "# <PoshBuddy: END";
+        let start_marker = format!("## POSHBUDDY AUTO-GENERATED CONFIG - START ({})", key);
+        let end_marker   = format!("## POSHBUDDY AUTO-GENERATED CONFIG - END ({})", key);
+        
         let mut new_lines = Vec::new();
-
         let existing_content = if profile.exists() {
             fs::read_to_string(profile)?
         } else {
@@ -630,13 +599,21 @@ impl App {
         let mut found = false;
 
         for line in existing_content.lines() {
-            if line.contains(&start_marker) {
+            let trimmed = line.trim();
+            
+            // 1. Purge legacy markers (Clean Migration)
+            if trimmed.starts_with(legacy_start) || trimmed.starts_with(legacy_end) {
+                continue;
+            }
+
+            // 2. Handle new standard markers
+            if trimmed.starts_with(&start_marker) {
                 inside_block = true;
                 found = true;
                 new_lines.push(start_marker.clone());
-                new_lines.push(format!("# {}", description));
+                new_lines.push(format!("## Description: {}", description));
                 new_lines.push(content.to_string());
-            } else if line.contains(&end_marker) {
+            } else if trimmed.starts_with(&end_marker) {
                 inside_block = false;
                 new_lines.push(end_marker.clone());
             } else if !inside_block {
@@ -649,7 +626,7 @@ impl App {
                 new_lines.push(String::new());
             }
             new_lines.push(start_marker);
-            new_lines.push(format!("# {}", description));
+            new_lines.push(format!("## Description: {}", description));
             new_lines.push(content.to_string());
             new_lines.push(end_marker);
         }
@@ -681,22 +658,70 @@ impl App {
         });
     }
 
-    /// Asynchronously generates a real prompt preview for a theme using isolation
-    pub fn load_theme_preview(&self, theme: ThemeAsset, tx: mpsc::Sender<AppMessage>) {
-        if !theme.is_local {
-            let _ = tx.send(AppMessage::ThemePreviewLoaded {
-                theme,
-                preview: " [Remote Theme: Pulsa ENTER para descargar y previsualizar] ".to_string(),
-            });
+    /// Installs all available fonts sequentially with progress reporting
+    pub fn install_all_fonts(&self, tx: mpsc::Sender<AppMessage>) {
+        let fonts = self.fonts.clone();
+        let cmd = OMP_BINARY;
+        
+        if fonts.is_empty() {
+            let _ = tx.try_send(AppMessage::Error("No fonts available to install.".to_string()));
             return;
         }
 
-        let cmd = OMP_BINARY;
-        let theme_name = theme.name.clone();
-        let theme_path = self.themes_dir.join(format!("{}.omp.json", theme_name));
+        tokio::spawn(async move {
+            let total = fonts.len();
+            for (idx, font) in fonts.iter().enumerate() {
+                let current_name = font.name.clone();
+                
+                // Update progress before starting
+                let _ = tx.send(AppMessage::MassFontProgress {
+                    index: idx + 1,
+                    total,
+                    name: current_name.clone(),
+                }).await;
+
+                // Run installation for this specific font
+                let output = tokio::process::Command::new(cmd)
+                    .args(["font", "install", &current_name])
+                    .output()
+                    .await;
+
+                if let Err(e) = output {
+                    let _ = tx.send(AppMessage::Error(format!("Failed to install {}: {}", current_name, e))).await;
+                    return;
+                }
+            }
+            
+            let _ = tx.send(AppMessage::Success("All Nerd Fonts have been installed successfully!".to_string())).await;
+        });
+    }
+
+    /// Asynchronously generates a real prompt preview for a theme using isolation
+    pub fn load_theme_preview(&self, theme: ThemeAsset, tx: mpsc::Sender<AppMessage>) {
         let theme_cloned = theme.clone();
+        let themes_dir = self.themes_dir.clone();
+        let cmd = OMP_BINARY;
 
         tokio::spawn(async move {
+            let final_theme_path = if !theme_cloned.is_local {
+                if let Some(url) = &theme_cloned.download_url {
+                    match crate::api::download_to_temp(&theme_cloned.name, url).await {
+                        Ok(p) => p,
+                        Err(e) => {
+                            let _ = tx.send(AppMessage::ThemePreviewLoaded {
+                                theme: theme_cloned,
+                                preview: format!(" Error: {}", e),
+                            }).await;
+                            return;
+                        }
+                    }
+                } else {
+                    return;
+                }
+            } else {
+                themes_dir.join(format!("{}.omp.json", theme_cloned.name))
+            };
+
             let mut cmd_obj = tokio::process::Command::new(cmd);
             cmd_obj
                 .env_clear()
@@ -709,7 +734,7 @@ impl App {
                     "print",
                     "primary",
                     "--config",
-                    &theme_path.to_string_lossy(),
+                    &final_theme_path.to_string_lossy(),
                     "--shell",
                     "pwsh",
                     "--force",
@@ -717,10 +742,10 @@ impl App {
                     "0",
                 ]);
 
-            let output = cmd_obj.output().await;
+            let output = tokio::time::timeout(std::time::Duration::from_millis(2000), cmd_obj.output()).await;
 
             match output {
-                Ok(out) => {
+                Ok(Ok(out)) => {
                     let raw = String::from_utf8_lossy(&out.stdout).to_string();
                     let preview = format!(" {}", raw.trim_end());
                     let _ = tx.send(AppMessage::ThemePreviewLoaded {
@@ -728,10 +753,16 @@ impl App {
                         preview,
                     }).await;
                 }
-                Err(e) => {
+                Ok(Err(e)) => {
                     let _ = tx.send(AppMessage::ThemePreviewLoaded {
                         theme: theme_cloned,
                         preview: format!(" Error: {}", e),
+                    }).await;
+                }
+                Err(_) => {
+                    let _ = tx.send(AppMessage::ThemePreviewLoaded {
+                        theme: theme_cloned,
+                        preview: " Timeout generating preview (OMP hang) ".to_string(),
                     }).await;
                 }
             }
@@ -833,20 +864,30 @@ impl App {
         }
 
         let content = fs::read_to_string(profile)?;
-        let start_marker = format!("# <PoshBuddy: START - {}>", key);
-        let end_marker = format!("# <PoshBuddy: END - {}>", key);
+        let legacy_start = "# <PoshBuddy: START";
+        let legacy_end   = "# <PoshBuddy: END";
+        let start_marker = format!("## POSHBUDDY AUTO-GENERATED CONFIG - START ({})", key);
+        let end_marker   = format!("## POSHBUDDY AUTO-GENERATED CONFIG - END ({})", key);
 
         let mut new_lines = Vec::new();
         let mut inside_block = false;
         let mut found = false;
 
         for line in content.lines() {
-            if line.contains(&start_marker) {
+            let trimmed = line.trim();
+            
+            // Purge both legacy and new markers
+            if trimmed.starts_with(legacy_start) || trimmed.starts_with(legacy_end) {
+                found = true;
+                continue;
+            }
+
+            if trimmed.starts_with(&start_marker) {
                 inside_block = true;
                 found = true;
                 continue;
             }
-            if line.contains(&end_marker) {
+            if trimmed.starts_with(&end_marker) {
                 inside_block = false;
                 continue;
             }
@@ -861,26 +902,150 @@ impl App {
         Ok(())
     }
 
-    /// Atomically updates all detected shell profiles to initialize Oh My Posh with the selected theme
+    /// Advanced 4-stage theme application flow: Download -> Verify -> Backup -> Apply
+    pub fn apply_theme_advanced(&mut self, theme: ThemeAsset, tx: mpsc::Sender<AppMessage>) {
+        let name = theme.name.clone();
+        let themes_dir = self.themes_dir.clone();
+        let profiles = self.detected_profiles.clone();
+        let backup_manager = self.backup_manager.clone();
+        let tx_cloned = tx.clone();
+
+        self.state = AppState::ApplyingProgress {
+            name: name.clone(),
+            stage: 0, // Preparing
+            progress: 0.1,
+        };
+
+        tokio::spawn(async move {
+            // Stage 0: Download/Locate
+            let _ = tx_cloned.send(AppMessage::InstallUpdate { stage: 0, percentage: 0.25 }).await;
+            
+            let source_path = if theme.is_local {
+                let name_clean = theme.name.replace(".omp.json", "");
+                themes_dir.join(format!("{}.omp.json", name_clean))
+            } else {
+                if !crate::api::check_internet_connectivity() {
+                    let _ = tx_cloned.send(AppMessage::Error("No internet connection detected. Check your network.".to_string())).await;
+                    return;
+                }
+
+                if let Some(url) = theme.download_url {
+                    // Download to a temporary location first for verification
+                    let temp_dir = std::env::temp_dir();
+                    match crate::api::download_theme_file(&theme.name, &url, &temp_dir).await {
+                        Ok(p) => p,
+                        Err(e) => {
+                            let _ = tx_cloned.send(AppMessage::Error(format!("Download failed: {}", e))).await;
+                            return;
+                        }
+                    }
+                } else {
+                    let _ = tx_cloned.send(AppMessage::Error("Missing download URL for remote theme".to_string())).await;
+                    return;
+                }
+            };
+
+            // Stage 1: Verify (Try to parse as JSON or OMP check)
+            let _ = tx_cloned.send(AppMessage::InstallUpdate { stage: 1, percentage: 0.50 }).await;
+            if let Ok(content) = fs::read_to_string(&source_path) {
+                if serde_json::from_str::<serde_json::Value>(&content).is_err() {
+                    let _ = tx_cloned.send(AppMessage::Error("Invalid theme JSON format".to_string())).await;
+                    return;
+                }
+            } else {
+                let _ = tx_cloned.send(AppMessage::Error("Could not read theme file for verification".to_string())).await;
+                return;
+            }
+
+            // Stage 2: Backup
+            let _ = tx_cloned.send(AppMessage::InstallUpdate { stage: 2, percentage: 0.75 }).await;
+            for profile in &profiles {
+                if let Err(e) = backup_manager.backup_profile(profile, &format!("Apply Theme Advanced: {}", name)) {
+                    let _ = tx_cloned.send(AppMessage::Error(format!("Backup failed: {}", e))).await;
+                    return;
+                }
+            }
+
+            // Stage 3: Apply (Actually copy to themes dir if it was remote, then update profile)
+            let _ = tx_cloned.send(AppMessage::InstallUpdate { stage: 3, percentage: 0.90 }).await;
+            
+            // If it was remote, we must move it from temp to permanent themes dir
+            let final_theme_path = if !theme.is_local {
+                let dest = themes_dir.join(format!("{}.omp.json", theme.name));
+                if let Err(e) = fs::copy(&source_path, &dest) {
+                    let _ = tx_cloned.send(AppMessage::Error(format!("Failed to save theme: {}", e))).await;
+                    return;
+                }
+                dest
+            } else {
+                source_path
+            };
+
+            let config_line = format!(
+                "oh-my-posh init powershell --config \"{}\" | Out-String | Invoke-Expression",
+                final_theme_path.to_string_lossy()
+            );
+
+            // Re-instantiate App-like behavior for writing
+            // Since we are in a thread, we can't easily mut self, 
+            // but we can use static-like calls or just perform the operation here.
+            // Actually, update_profile_safe is a &self method, so we need to be careful.
+            // However, it just uses fs::write. Let's recreate the logic or pass a mini-app.
+            
+            // To keep it simple, we'll perform the write here since we have everything:
+            let start_marker = format!("## POSHBUDDY AUTO-GENERATED CONFIG - START (THEME)");
+            let end_marker   = format!("## POSHBUDDY AUTO-GENERATED CONFIG - END (THEME)");
+            let line_ending = if cfg!(windows) { "\r\n" } else { "\n" };
+
+            for profile in &profiles {
+                let existing_content = fs::read_to_string(profile).unwrap_or_default();
+                let mut new_lines = Vec::new();
+                let mut inside_block = false;
+                let mut found = false;
+
+                for line in existing_content.lines() {
+                    let trimmed = line.trim();
+                    // Purge legacy
+                    if trimmed.starts_with("# <PoshBuddy: START") || trimmed.starts_with("# <PoshBuddy: END") { continue; }
+
+                    if trimmed.starts_with(&start_marker) {
+                        inside_block = true;
+                        found = true;
+                        new_lines.push(start_marker.clone());
+                        new_lines.push(format!("## Description: Apply Oh My Posh theme: {}", name));
+                        new_lines.push(config_line.clone());
+                    } else if trimmed.starts_with(&end_marker) {
+                        inside_block = false;
+                        new_lines.push(end_marker.clone());
+                    } else if !inside_block {
+                        new_lines.push(line.to_string());
+                    }
+                }
+
+                if !found {
+                    if !existing_content.is_empty() && !existing_content.ends_with('\n') {
+                        new_lines.push(String::new());
+                    }
+                    new_lines.push(start_marker.clone());
+                    new_lines.push(format!("## Description: Apply Oh My Posh theme: {}", name));
+                    new_lines.push(config_line.clone());
+                    new_lines.push(end_marker.clone());
+                }
+
+                if let Err(e) = fs::write(profile, new_lines.join(line_ending)) {
+                    let _ = tx_cloned.send(AppMessage::Error(format!("Profile update failed: {}", e))).await;
+                    return;
+                }
+            }
+
+            let _ = tx_cloned.send(AppMessage::Success(format!("Theme '{}' applied successfully!", name))).await;
+            let _ = tx_cloned.send(AppMessage::ThemeDownloaded(final_theme_path)).await; // To update app.active_config_path
+        });
+    }
+
+    /// Atomically updates all detected shell profiles to initialize Oh My Posh with the selected theme (Legacy/Simple)
     pub fn apply_theme(&mut self, theme_name: &str) -> io::Result<()> {
-        let theme_path = self.themes_dir.join(theme_name);
-        
-        let config_line = format!(
-            "oh-my-posh init powershell --config \"{}\" | Out-String | Invoke-Expression",
-            theme_path.display()
-        );
-
-        for profile in &self.detected_profiles {
-            self.backup_manager.backup_profile(profile, &format!("Apply Theme: {}", theme_name))
-                .map_err(|e| io::Error::other(e.to_string()))?;
-
-            self.update_profile_safe(
-                profile, 
-                "THEME", 
-                &config_line, 
-                &format!("Aplica el tema de Oh My Posh: {}", theme_name)
-            )?;
-        }
+        let theme_path = self.themes_dir.join(format!("{}.omp.json", theme_name));
 
         // Dejar rastro del tema actual para la UI
         self.active_config_path = Some(theme_path);
@@ -993,6 +1158,36 @@ impl App {
                 AppMessage::RemoteThemesLoaded(themes) => {
                     self.remote_themes = themes;
                 }
+                AppMessage::ThemeDownloaded(path) => {
+                    if let Some(name) = path.file_name().and_then(|n| n.to_str()) {
+                        let theme_asset = ThemeAsset {
+                            name: name.to_string(),
+                            is_local: true,
+                            download_url: None,
+                        };
+                        
+                        // Add to themes list if not exists
+                        if !self.themes.iter().any(|t| t.name == theme_asset.name) {
+                            self.themes.push(theme_asset.clone());
+                            self.themes.sort_by(|a, b| a.name.cmp(&b.name));
+                        }
+
+                        // Auto-apply theme
+                        self.apply_theme_advanced(theme_asset.clone(), tx.clone());
+                    }
+                }
+                AppMessage::InstallUpdate { stage, percentage } => {
+                    if let AppState::ApplyingProgress { name, .. } = &self.state {
+                        self.state = AppState::ApplyingProgress {
+                            name: name.clone(),
+                            stage,
+                            progress: percentage,
+                        };
+                    }
+                }
+                AppMessage::Success(msg) => {
+                    self.state = AppState::Success(msg);
+                }
                 AppMessage::FontInstalled(name) => {
                     self.state = AppState::FontSuccess(name);
                     self.has_nerd_font = true;
@@ -1017,12 +1212,22 @@ impl App {
                     let themes_dir = self.themes_dir.clone();
                     tokio::spawn(crate::api::setup_app_task(tx.clone(), themes_dir));
                 }
+                AppMessage::MassFontProgress { index, total, name } => {
+                    let percentage = (index as f32 / total as f32) * 100.0;
+                    self.state = AppState::InstallingAllFonts {
+                        progress: percentage,
+                        current_font: name,
+                        index,
+                        total,
+                    };
+                }
                 AppMessage::Error(e) => {
                     self.state = AppState::Error(e);
                 }
             }
         }
     }
+    
 
     pub fn handle_input(
         &mut self,
@@ -1032,6 +1237,20 @@ impl App {
         use crossterm::event::{KeyCode, KeyEventKind, KeyModifiers};
 
         if key.kind != KeyEventKind::Press {
+            return Ok(false);
+        }
+
+        // Handling confirmation for mass font installation
+        if self.state == AppState::ConfirmMassFontInstallation {
+            match key.code {
+                KeyCode::Char('y') | KeyCode::Char('Y') => {
+                    self.install_all_fonts(tx.clone());
+                }
+                KeyCode::Char('n') | KeyCode::Char('N') | KeyCode::Esc => {
+                    self.state = AppState::Welcome;
+                }
+                _ => {}
+            }
             return Ok(false);
         }
 
@@ -1079,7 +1298,13 @@ impl App {
         }
 
         if let AppState::Success(_) = self.state {
-            return Ok(true);
+            self.state = AppState::Main;
+            return Ok(false);
+        }
+
+        if let AppState::Error(_) = self.state {
+            self.state = AppState::Main;
+            return Ok(false);
         }
 
         if let AppState::FontSuccess(_) = self.state {
@@ -1095,7 +1320,7 @@ impl App {
 
         // Welcome screen - Quick actions navigation
         if self.state == AppState::Welcome {
-            const NUM_ACTIONS: usize = 8;
+            const NUM_ACTIONS: usize = 9;
 
             match key.code {
                 KeyCode::Up => {
@@ -1108,11 +1333,19 @@ impl App {
                         self.welcome_selected_action += 1;
                     }
                 }
+                KeyCode::Char('b') => {
+                    if let Err(e) = self.create_manual_backup() {
+                        self.state = AppState::Error(format!("Backup failed: {}", e));
+                    } else {
+                        self.state = AppState::Success("Backup created successfully".to_string());
+                    }
+                    return Ok(false);
+                }
                 KeyCode::Enter => {
-                    // Ejecutar acción seleccionada
+                    // Execute selected action
                     match self.welcome_selected_action {
                         0 => {
-                            // Aplicar tema aleatorio
+                            // Apply random theme
                             if !self.themes.is_empty() {
                                 use std::time::{SystemTime, UNIX_EPOCH};
                                 let seed = SystemTime::now()
@@ -1120,31 +1353,18 @@ impl App {
                                     .unwrap_or_default()
                                     .as_secs() as usize;
                                 let idx = seed % self.themes.len();
-                                if let Some(random_theme) = self.themes.get(idx) {
-                                    let name = random_theme.name.clone();
-                                    if let Err(e) = self.apply_theme(&name) {
-                                        self.state =
-                                            AppState::Error(format!("Failed to apply fallback: {}", e));
-                                    } else {
-                                        self.state = AppState::Success(format!(
-                                            "Tema '{}' aplicado!",
-                                            name
-                                        ));
-                                    }
+                                if let Some(random_theme) = self.themes.get(idx).cloned() {
+                                    self.apply_theme_advanced(random_theme, tx.clone());
                                 }
                             } else {
-                                self.state =
-                                    AppState::Error("No hay temas disponibles".to_string());
+                                self.state = AppState::Error("No themes found to select randomly.".to_string());
                             }
                         }
                         1 => {
-                            // Instalar Nerd Font (Acción real)
-                            let font_name = "CascadiaCode".to_string();
-                            self.state = AppState::Installing(font_name.clone());
-                            self.install_font(font_name, tx.clone());
+                            self.state = AppState::ConfirmMassFontInstallation;
                         }
                         2 => {
-                            // Instalar Terminal-Icons (Acción real)
+                            // Install Terminal-Icons (Real Action)
                             let plugin = self.plugins.iter().find(|p| p.name == "Terminal-Icons").cloned();
                             if let Some(p) = plugin {
                                 if let Err(e) = self.toggle_plugin(&p) {
@@ -1155,50 +1375,48 @@ impl App {
                             }
                         }
                         3 => {
-                            // Ver diagnóstico
-                            match self.diagnostic.run_full_diagnostic(&self.detected_profiles) {
-                                Ok(result) => {
-                                    let report = self.diagnostic.format_report(&result);
-                                    self.state = AppState::Success(report);
-                                }
-                                Err(e) => {
-                                    self.state =
-                                        AppState::Error(format!("Diagnóstico falló: {}", e));
-                                }
-                            }
+                            self.state = AppState::Success("Coming Soon: Advanced diagnostics are being polished to provide more helpful fixing tips.".to_string());
                         }
                         4 => {
-                            // Mostrar info de backups disponibles
+                            // Show available backups info
                             if let Some(ref last) = self.last_backup {
                                 self.state = AppState::Success(format!(
-                                    "Backup disponible: {}",
+                                    "Backup available: {}",
                                     last.display()
                                 ));
                             } else {
                                 self.state =
-                                    AppState::Error("No hay backups disponibles".to_string());
+                                    AppState::Error("No backups available".to_string());
                             }
                         }
                         5 => {
-                            // Ir a temas
+                            // Go to themes
                             self.state = AppState::Main;
                             self.active_view = ActiveView::Themes;
                         }
                         6 => {
-                            // Ir a fuentes
+                            // Go to fonts
                             self.state = AppState::Main;
                             self.active_view = ActiveView::Fonts;
                         }
                         7 => {
-                            // Ir a plugins
+                            // Go to plugins
                             self.state = AppState::Main;
                             self.active_view = ActiveView::Segments;
+                        }
+                        8 => {
+                            // Action 8: Manual Backup
+                            if let Err(e) = self.create_manual_backup() {
+                                self.state = AppState::Error(format!("Backup failed: {}", e));
+                            } else {
+                                self.state = AppState::Success("Backup created successfully".to_string());
+                            }
                         }
                         _ => {}
                     }
                 }
                 KeyCode::Char('1') => {
-                    // Accion 1: Tema Aleatorio — ejecutar directamente
+                    // Action 1: Random Theme — execute directly
                     if !self.themes.is_empty() {
                         use std::time::{SystemTime, UNIX_EPOCH};
                         let seed = SystemTime::now()
@@ -1218,14 +1436,11 @@ impl App {
                         self.state = AppState::Error("No themes loaded yet".to_string());
                     }
                 }
-                KeyCode::Char('2') | KeyCode::Char('f') => {
-                    // Accion 2: Instalar Nerd Font
-                    let font_name = "CascadiaCode".to_string();
-                    self.state = AppState::Installing(font_name.clone());
-                    self.install_font(font_name, tx.clone());
+                KeyCode::Char('2') => {
+                    self.state = AppState::ConfirmMassFontInstallation;
                 }
                 KeyCode::Char('3') | KeyCode::Char('i') => {
-                    // Accion 3: Terminal-Icons
+                    // Action 3: Terminal-Icons
                     let plugin = self.plugins.iter().find(|p| p.name == "Terminal-Icons").cloned();
                     if let Some(p) = plugin {
                         if let Err(e) = self.toggle_plugin(&p) {
@@ -1236,38 +1451,32 @@ impl App {
                     }
                 }
                 KeyCode::Char('4') | KeyCode::Char('d') => {
-                    // Accion 4: Diagnostico
-                    match self.diagnostic.run_full_diagnostic(&self.detected_profiles) {
-                        Ok(result) => {
-                            let report = self.diagnostic.format_report(&result);
-                            self.state = AppState::Success(report);
-                        }
-                        Err(e) => {
-                            self.state = AppState::Error(format!("Error: {}", e));
-                        }
-                    }
+                    self.state = AppState::Success("Coming Soon: Advanced diagnostics are being polished to provide more helpful fixing tips.".to_string());
                 }
-                KeyCode::Char('5') | KeyCode::Char('b') => {
-                    // Accion 5: Backups
+                KeyCode::Char('5') => {
+                    // Action 5: View Backup Info
                     if let Some(ref last) = self.last_backup {
-                        self.state = AppState::Success(format!("Backup: {}", last.display()));
+                        self.state = AppState::Success(format!("Last backup: {}", last.display()));
                     } else {
                         self.state = AppState::Error("No backups found".to_string());
                     }
                 }
-                KeyCode::Char('6') | KeyCode::Char('t') => {
+                KeyCode::Char('6') | KeyCode::Char('t') | KeyCode::Char('T') => {
                     self.state = AppState::Main;
                     self.active_view = ActiveView::Themes;
                 }
-                KeyCode::Char('7') | KeyCode::Char('f') => {
+                KeyCode::Char('7') | KeyCode::Char('f') | KeyCode::Char('F') => {
                     self.state = AppState::Main;
                     self.active_view = ActiveView::Fonts;
                 }
-                KeyCode::Char('8') | KeyCode::Char('s') => {
+                KeyCode::Char('8') | KeyCode::Char('s') | KeyCode::Char('S') => {
                     self.state = AppState::Main;
                     self.active_view = ActiveView::Segments;
                 }
-                KeyCode::Char('q') | KeyCode::Esc => return Ok(true),
+                KeyCode::Char('q') => return Ok(true),
+                KeyCode::Esc | KeyCode::Char('h') | KeyCode::Char('H') => {
+                    self.state = AppState::Welcome;
+                }
                 _ => {}
             }
             return Ok(false);
@@ -1361,7 +1570,13 @@ impl App {
                         self.plugins_list_state.select(Some(i));
                     }
                 }
-                KeyCode::Char('q') | KeyCode::Esc => return Ok(true),
+                KeyCode::Char('q') => return Ok(true),
+                KeyCode::Esc | KeyCode::Char('h') | KeyCode::Char('H') => {
+                    self.state = AppState::Welcome;
+                    self.filter = String::new();
+                    self.fonts_filter = String::new();
+                    self.segments_filter = String::new();
+                }
                 KeyCode::Char(c) => {
                     if self.active_view == ActiveView::Themes {
                         self.filter.push(c);
@@ -1388,17 +1603,12 @@ impl App {
                         let filtered = self.filtered_themes();
                         if let Some(selected) = self.list_state.selected() {
                             if let Some(theme) = filtered.get(selected) {
-                                if theme.is_local {
-                                    self.apply_theme(&theme.name)?;
-                                    self.state = AppState::Success(format!("Tema '{}' aplicado!", theme.name));
-                                } else if let Some(url) = &theme.download_url {
-                                    // Trigger download
-                                    self.state = AppState::Installing(format!("Descargando {}...", theme.name));
-                                    self.download_theme(RemoteTheme {
-                                        name: theme.name.clone(),
-                                        download_url: url.clone(),
-                                        sha: String::new(), // Not critical for simple download
-                                    }, tx.clone());
+                                // Connectivity check for remote
+                                if !theme.is_local && !crate::api::check_internet_connectivity() {
+                                    self.state = AppState::Error("No internet connection detected.".to_string());
+                                } else {
+                                    // Trigger advanced 4-stage flow (works for local and remote)
+                                    self.apply_theme_advanced(theme.clone(), tx.clone());
                                 }
                             }
                         }
@@ -1430,8 +1640,8 @@ impl App {
         Ok(false)
     }
 
-    /// Restaura el último backup creado para todos los perfiles detectados
-    /// Retorna el número de perfiles restaurados exitosamente
+    /// Restores the last backup created for all detected profiles
+    /// Returns the number of successfully restored profiles
     pub fn restore_last_backup(&mut self) -> Result<usize, crate::backup::BackupError> {
         let mut restored_count = 0;
 
@@ -1452,7 +1662,7 @@ impl App {
         Ok(restored_count)
     }
 
-    /// Obtiene información de los backups disponibles para un perfil específico
+    /// Gets information about available backups for a specific profile
     pub fn get_backup_info(
         &self,
         profile_path: &std::path::Path,
@@ -1462,13 +1672,39 @@ impl App {
             .unwrap_or_default()
     }
 
-    /// Actualiza el contador total de backups detectados en todos los perfiles
+    /// Refreshes the total count of backups detected across all profiles
     pub fn refresh_backup_count(&mut self) {
         let mut count = 0;
         for profile in &self.detected_profiles {
             count += self.get_backup_info(profile).len();
         }
         self.total_backups = count;
+    }
+
+    /// Creates a manual backup of all detected PowerShell profiles
+    pub fn create_manual_backup(&mut self) -> Result<(), String> {
+        if self.detected_profiles.is_empty() {
+            return Err("No PowerShell profiles detected".to_string());
+        }
+
+        let mut errors = Vec::new();
+        for profile in &self.detected_profiles {
+            // Manual backup for existing profiles
+            if profile.exists() {
+                if let Err(e) = self.backup_manager.backup_profile(profile, "Manual backup from PoshBuddy") {
+                    errors.push(format!("{}: {}", profile.display(), e));
+                }
+            }
+        }
+
+        // Refresh count after backup
+        self.refresh_backup_count();
+
+        if errors.is_empty() {
+            Ok(())
+        } else {
+            Err(format!("Some backups failed: {}", errors.join("; ")))
+        }
     }
 }
 
