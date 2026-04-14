@@ -9,13 +9,90 @@ pub async fn setup_app_task(tx: mpsc::Sender<AppMessage>, themes_dir: PathBuf) {
     setup_app_task_with_urls(tx, themes_dir, themes_url, fonts_url).await;
 }
 
+pub fn get_client() -> reqwest::Client {
+    reqwest::Client::builder()
+        .user_agent("poshbuddy")
+        .timeout(std::time::Duration::from_secs(10))
+        .build()
+        .unwrap_or_else(|_| reqwest::Client::new())
+}
+
+/// Checks if the system has an active internet connection by attempting a fast resolve
+pub fn check_internet_connectivity() -> bool {
+    // Attempting to resolve a reliable host or connecting to a public DNS
+    use std::net::{TcpStream, ToSocketAddrs};
+    let timeout = std::time::Duration::from_millis(1500);
+    
+    // We try to connect to a public DNS (Cloudflare) on port 53
+    match "1.1.1.1:53".to_socket_addrs() {
+        Ok(mut addrs) => {
+            if let Some(addr) = addrs.next() {
+                return TcpStream::connect_timeout(&addr, timeout).is_ok();
+            }
+        }
+        Err(_) => return false,
+    }
+    false
+}
+
+/// Downloads a remote theme file to the local themes directory
+pub async fn download_theme_file(name: &str, url: &str, target_dir: &std::path::Path) -> Result<std::path::PathBuf, String> {
+    let client = get_client();
+    let file_path = target_dir.join(format!("{}.omp.json", name));
+    
+    match client.get(url).send().await {
+        Ok(resp) => {
+            if !resp.status().is_success() {
+                return Err(format!("Download failed: HTTP {}", resp.status()));
+            }
+            match resp.bytes().await {
+                Ok(bytes) => {
+                    if let Err(e) = tokio::fs::write(&file_path, &bytes).await {
+                        return Err(format!("Disk write failed: {}", e));
+                    }
+                    Ok(file_path)
+                }
+                Err(e) => Err(format!("Network transfer failed: {}", e)),
+            }
+        }
+        Err(e) => Err(format!("Network request failed: {}", e)),
+    }
+}
+
+/// Downloads a remote theme file to a temporary location for previewing
+pub async fn download_to_temp(name: &str, url: &str) -> Result<std::path::PathBuf, String> {
+    let client = get_client();
+    let response = client
+        .get(url)
+        .send()
+        .await
+        .map_err(|e| format!("Failed to download theme for preview: {}", e))?;
+
+    if !response.status().is_success() {
+        return Err(format!("Server returned error: {}", response.status()));
+    }
+
+    let bytes = response
+        .bytes()
+        .await
+        .map_err(|e| format!("Failed to read theme content: {}", e))?;
+
+    let temp_dir = std::env::temp_dir();
+    let temp_name = format!("poshbuddy_preview_{}.omp.json", name);
+    let temp_path = temp_dir.join(temp_name);
+
+    tokio::fs::write(&temp_path, &bytes).await.map_err(|e| format!("Failed to write preview file: {}", e))?;
+
+    Ok(temp_path)
+}
+
 pub async fn setup_app_task_with_urls(
     tx: mpsc::Sender<AppMessage>,
-    _themes_dir: PathBuf,
+    _themes_dir: std::path::PathBuf,
     themes_url: &str,
     fonts_url: &str,
 ) {
-    let client = reqwest::Client::new();
+    let client = get_client();
 
     // 1. Fetching available themes from the official Oh My Posh repository
     let resp = client

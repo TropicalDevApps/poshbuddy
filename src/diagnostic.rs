@@ -1,14 +1,15 @@
-//! Módulo de Diagnósticos para PoshBuddy
+//! Diagnostic Module for PoshBuddy
 //!
-//! Proporciona verificación de sintaxis PowerShell, diagnóstico de perfiles
-//! y análisis de problemas comunes antes de aplicar cambios.
+//! Provides PowerShell syntax verification, profile diagnostics,
+//! and analysis of common issues before applying changes.
 
 use std::io;
 use std::path::Path;
 use std::process::Command;
 
-/// Errores que pueden ocurrir durante el diagnóstico
+/// Errors that may occur during diagnostics
 #[derive(Debug)]
+#[allow(dead_code)]
 pub enum DiagnosticError {
     Io(io::Error),
     #[allow(dead_code)]
@@ -22,11 +23,11 @@ pub enum DiagnosticError {
 impl std::fmt::Display for DiagnosticError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            DiagnosticError::Io(e) => write!(f, "Error de E/S: {}", e),
-            DiagnosticError::InvalidSyntax(msg) => write!(f, "Sintaxis inválida: {}", msg),
-            DiagnosticError::PowerShellNotFound => write!(f, "PowerShell no encontrado"),
+            DiagnosticError::Io(e) => write!(f, "I/O Error: {}", e),
+            DiagnosticError::InvalidSyntax(msg) => write!(f, "Invalid syntax: {}", msg),
+            DiagnosticError::PowerShellNotFound => write!(f, "PowerShell not found"),
             DiagnosticError::ProfileNotReadable(path) => {
-                write!(f, "No se puede leer el perfil: {}", path)
+                write!(f, "Profile is not readable: {}", path)
             }
         }
     }
@@ -47,8 +48,9 @@ impl From<io::Error> for DiagnosticError {
     }
 }
 
-/// Resultado de una verificación de diagnóstico
+/// Result of a diagnostic check
 #[derive(Debug, Clone)]
+#[allow(dead_code)]
 pub struct DiagnosticResult {
     pub success: bool,
     pub warnings: Vec<String>,
@@ -57,6 +59,7 @@ pub struct DiagnosticResult {
 }
 
 impl DiagnosticResult {
+    #[allow(dead_code)]
     pub fn new() -> Self {
         Self {
             success: true,
@@ -90,35 +93,36 @@ impl Default for DiagnosticResult {
     }
 }
 
-/// Diagnóstico de configuración de PowerShell
+/// PowerShell configuration diagnostics
 pub struct Diagnostic;
 
 impl Diagnostic {
-    /// Crea una nueva instancia del diagnóstico
+    /// Creates a new diagnostic instance
     pub fn new() -> Self {
         Self
     }
 
-    /// Verifica la sintaxis de un script de PowerShell
-    /// Usa el parámetro -WhatIf de PowerShell para validar sin ejecutar
+    /// Verifies the syntax of a PowerShell script
+    /// Uses PowerShell's -WhatIf parameter to validate without executing
+    #[allow(dead_code)]
     pub fn validate_powershell_syntax(
         &self,
         script: &str,
     ) -> Result<DiagnosticResult, DiagnosticError> {
         let mut result = DiagnosticResult::new();
 
-        // Verificar que hay contenido
+        // Check if there is content
         if script.trim().is_empty() {
-            result.add_error("El script está vacío");
+            result.add_error("Script is empty");
             return Ok(result);
         }
 
-        // Verificar balanceo de llaves y paréntesis básico
+        // Verify basic brace and parentheses balancing
         let open_braces = script.chars().filter(|&c| c == '{').count();
         let close_braces = script.chars().filter(|&c| c == '}').count();
         if open_braces != close_braces {
             result.add_error(format!(
-                "Llaves desbalanceadas: {} abiertas, {} cerradas",
+                "Unbalanced braces: {} open, {} closed",
                 open_braces, close_braces
             ));
         }
@@ -127,24 +131,24 @@ impl Diagnostic {
         let close_parens = script.chars().filter(|&c| c == ')').count();
         if open_parens != close_parens {
             result.add_error(format!(
-                "Paréntesis desbalanceados: {} abiertos, {} cerrados",
+                "Unbalanced parentheses: {} open, {} closed",
                 open_parens, close_parens
             ));
         }
 
-        // Verificar comillas balanceadas (simplificado)
+        // Verify balanced quotes (simplified)
         let double_quotes = script.chars().filter(|&c| c == '"').count();
         let single_quotes = script.chars().filter(|&c| c == '\'').count();
         if double_quotes % 2 != 0 {
-            result.add_warning("Posibles comillas dobles desbalanceadas");
+            result.add_warning("Possible unbalanced double quotes");
         }
         if single_quotes % 2 != 0 {
-            result.add_warning("Posibles comillas simples desbalanceadas");
+            result.add_warning("Possible unbalanced single quotes");
         }
 
-        // Verificar comandos comunes de OMP
+        // Verify common OMP commands
         if script.contains("oh-my-posh") {
-            // Verificar que la ruta al tema existe
+            // Verify theme path exists
             if let Some(theme_idx) = script.find("--config") {
                 let after_config = &script[theme_idx + 8..];
                 if let Some(quote_idx) = after_config.find(['"', '\'']) {
@@ -154,50 +158,51 @@ impl Diagnostic {
                         let theme_path = &after_config[quote_idx + 1..quote_idx + 1 + path_end];
                         if !std::path::Path::new(theme_path).exists() {
                             result
-                                .add_warning(format!("La ruta del tema no existe: {}", theme_path));
+                                .add_warning(format!("Theme path does not exist: {}", theme_path));
                         }
                     }
                 }
             }
         }
 
-        // Sugerencias
+        // Suggestions
         if script.contains("Invoke-Expression") {
-            result.add_suggestion("Considera usar 'Invoke-Expression' solo con fuentes confiables");
+            result.add_suggestion("Consider using 'Invoke-Expression' only with trusted sources");
         }
 
         Ok(result)
     }
 
-    /// Verifica un perfil de PowerShell específico
+    /// Verifies a specific PowerShell profile
+    #[allow(dead_code)]
     pub fn check_profile(&self, profile_path: &Path) -> Result<DiagnosticResult, DiagnosticError> {
         let mut result = DiagnosticResult::new();
 
         if !profile_path.exists() {
             result.add_warning(format!(
-                "El perfil no existe: {}. Se creará uno nuevo.",
+                "Profile does not exist: {}. A new one will be created.",
                 profile_path.display()
             ));
             return Ok(result);
         }
 
-        // Verificar que se puede leer
+        // Verify it can be read
         match std::fs::read_to_string(profile_path) {
             Ok(content) => {
-                // Verificar sintaxis del contenido
+                // Verify content syntax
                 let syntax_result = self.validate_powershell_syntax(&content)?;
                 result.warnings.extend(syntax_result.warnings);
                 result.errors.extend(syntax_result.errors);
                 result.suggestions.extend(syntax_result.suggestions);
                 result.success = result.errors.is_empty();
 
-                // Verificar codificación (debería ser UTF-8 o UTF-8-BOM)
+                // Verify encoding (should be UTF-8 or UTF-8-BOM)
                 let bytes = std::fs::read(profile_path)?;
                 if bytes.starts_with(&[0xEF, 0xBB, 0xBF]) {
-                    result.add_suggestion("El perfil tiene BOM UTF-8. Esto es normal en Windows.");
+                    result.add_suggestion("Profile has UTF-8 BOM. This is normal on Windows.");
                 }
 
-                // Verificar permisos de ejecución
+                // Verify execution permissions
                 #[cfg(unix)]
                 {
                     use std::os::unix::fs::PermissionsExt;
@@ -205,13 +210,13 @@ impl Diagnostic {
                     let permissions = metadata.permissions();
                     let mode = permissions.mode();
                     if mode & 0o111 == 0 {
-                        result.add_warning("El perfil no tiene permisos de ejecución");
+                        result.add_warning("Profile does not have execution permissions");
                     }
                 }
             }
             Err(e) => {
                 result.add_error(format!(
-                    "No se pudo leer el perfil {}: {}",
+                    "Could not read profile {}: {}",
                     profile_path.display(),
                     e
                 ));
@@ -221,7 +226,8 @@ impl Diagnostic {
         Ok(result)
     }
 
-    /// Verifica todos los perfiles detectados
+    /// Verifies all detected profiles
+    #[allow(dead_code)]
     pub fn check_all_profiles(
         &self,
         profiles: &[std::path::PathBuf],
@@ -229,8 +235,8 @@ impl Diagnostic {
         let mut result = DiagnosticResult::new();
 
         if profiles.is_empty() {
-            result.add_error("No se detectaron perfiles de PowerShell");
-            result.add_suggestion("Ejecuta 'notepad $PROFILE' para crear un perfil");
+            result.add_error("No PowerShell profiles detected");
+            result.add_suggestion("Run 'notepad $PROFILE' to create a profile");
             return Ok(result);
         }
 
@@ -238,7 +244,7 @@ impl Diagnostic {
             let profile_result = self.check_profile(profile)?;
             if !profile_result.is_valid() {
                 result.add_error(format!(
-                    "Problemas en {}: {}",
+                    "Issues in {}: {}",
                     profile.display(),
                     profile_result.errors.join(", ")
                 ));
@@ -251,35 +257,36 @@ impl Diagnostic {
         Ok(result)
     }
 
-    /// Ejecuta un diagnóstico completo del sistema
+    /// Runs a full system diagnostic
+    #[allow(dead_code)]
     pub fn run_full_diagnostic(
         &self,
         profiles: &[std::path::PathBuf],
     ) -> Result<DiagnosticResult, DiagnosticError> {
         let mut result = DiagnosticResult::new();
 
-        // 1. Verificar que PowerShell está instalado
+        // 1. Verify PowerShell is installed
         if !Self::is_powershell_available() {
-            result.add_error("PowerShell no está disponible en el PATH");
+            result.add_error("PowerShell is not available in PATH");
             return Ok(result);
         }
 
-        // 2. Verificar Oh My Posh
+        // 2. Check Oh My Posh
         match self.check_oh_my_posh() {
             Ok(omp_ok) => {
                 if !omp_ok {
-                    result.add_error("Oh My Posh no está instalado o no está en el PATH");
+                    result.add_error("Oh My Posh is not installed or not in PATH");
                     result.add_suggestion(
-                        "Instala Oh My Posh: winget install JanDeDobbeleer.OhMyPosh",
+                        "Install Oh My Posh: winget install JanDeDobbeleer.OhMyPosh",
                     );
                 }
             }
             Err(e) => {
-                result.add_warning(format!("No se pudo verificar Oh My Posh: {}", e));
+                result.add_warning(format!("Could not verify Oh My Posh: {}", e));
             }
         }
 
-        // 3. Verificar perfiles
+        // 3. Verify profiles
         let profile_result = self.check_all_profiles(profiles)?;
         result.warnings.extend(profile_result.warnings);
         result.errors.extend(profile_result.errors);
@@ -289,7 +296,8 @@ impl Diagnostic {
         Ok(result)
     }
 
-    /// Verifica si PowerShell está disponible
+    /// Checks if PowerShell is available
+    #[allow(dead_code)]
     pub fn is_powershell_available() -> bool {
         let cmd = if cfg!(windows) { "pwsh" } else { "pwsh" };
         Command::new(cmd)
@@ -300,7 +308,8 @@ impl Diagnostic {
             .unwrap_or(false)
     }
 
-    /// Verifica si Oh My Posh está instalado
+    /// Checks if Oh My Posh is installed
+    #[allow(dead_code)]
     pub fn check_oh_my_posh(&self) -> Result<bool, DiagnosticError> {
         let output = if cfg!(windows) {
             Command::new("cmd")
@@ -316,35 +325,36 @@ impl Diagnostic {
         }
     }
 
-    /// Genera un reporte de diagnóstico formateado
+    /// Generates a formatted diagnostic report
+    #[allow(dead_code)]
     pub fn format_report(&self, result: &DiagnosticResult) -> String {
         let mut report = String::new();
         report.push_str("═══════════════════════════════════════════\n");
-        report.push_str("        REPORTE DE DIAGNÓSTICO\n");
+        report.push_str("          DIAGNOSTIC REPORT\n");
         report.push_str("═══════════════════════════════════════════\n\n");
 
         if result.is_valid() {
-            report.push_str("✅ Estado: TODO CORRECTO\n");
+            report.push_str("✅ Status: ALL GOOD\n");
         } else {
-            report.push_str("❌ Estado: SE ENCONTRARON PROBLEMAS\n");
+            report.push_str("❌ Status: ISSUES FOUND\n");
         }
 
         if !result.errors.is_empty() {
-            report.push_str("\n🚨 ERRORES:\n");
+            report.push_str("\n🚨 ERRORS:\n");
             for error in &result.errors {
                 report.push_str(&format!("   • {}\n", error));
             }
         }
 
         if !result.warnings.is_empty() {
-            report.push_str("\n⚠️  ADVERTENCIAS:\n");
+            report.push_str("\n⚠️  WARNINGS:\n");
             for warning in &result.warnings {
                 report.push_str(&format!("   • {}\n", warning));
             }
         }
 
         if !result.suggestions.is_empty() {
-            report.push_str("\n💡 SUGERENCIAS:\n");
+            report.push_str("\n💡 SUGGESTIONS:\n");
             for suggestion in &result.suggestions {
                 report.push_str(&format!("   • {}\n", suggestion));
             }
@@ -389,7 +399,7 @@ mod tests {
             .validate_powershell_syntax("function test() { Write-Host 'ok'")
             .unwrap();
         assert!(!result.is_valid());
-        assert!(result.errors.iter().any(|e| e.contains("Llaves")));
+        assert!(result.errors.iter().any(|e| e.contains("Unbalanced braces")));
     }
 
     #[test]
@@ -398,8 +408,8 @@ mod tests {
         let script =
             "oh-my-posh init pwsh --config 'C:\\nonexistent\\theme.omp.json' | Invoke-Expression";
         let result = diag.validate_powershell_syntax(script).unwrap();
-        // Debería tener una advertencia sobre la ruta no existente
-        assert!(result.warnings.iter().any(|w| w.contains("ruta del tema")));
+        // Should have a warning about nonexistent path
+        assert!(result.warnings.iter().any(|w| w.contains("Theme path does not exist")));
     }
 
     #[test]
@@ -418,14 +428,14 @@ mod tests {
     fn test_format_report() {
         let diag = Diagnostic::new();
         let mut result = DiagnosticResult::new();
-        result.add_error("Error de prueba");
-        result.add_warning("Advertencia de prueba");
-        result.add_suggestion("Sugerencia de prueba");
+        result.add_error("Test error");
+        result.add_warning("Test warning");
+        result.add_suggestion("Test suggestion");
 
         let report = diag.format_report(&result);
-        assert!(report.contains("SE ENCONTRARON PROBLEMAS"));
-        assert!(report.contains("Error de prueba"));
-        assert!(report.contains("Advertencia de prueba"));
-        assert!(report.contains("Sugerencia de prueba"));
+        assert!(report.contains("ISSUES FOUND"));
+        assert!(report.contains("Test error"));
+        assert!(report.contains("Test warning"));
+        assert!(report.contains("Test suggestion"));
     }
 }

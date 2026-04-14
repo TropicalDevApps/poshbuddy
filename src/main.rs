@@ -17,7 +17,7 @@ mod plugin_installer;
 mod ui;
 
 use crate::api::setup_app_task;
-use crate::app::{App, AppState};
+use crate::app::App;
 use crate::ui::ui;
 
 #[tokio::main]
@@ -33,7 +33,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
     let mut app = App::new();
 
     // Create an mpsc channel for async background tasks to communicate with the UI loop
-    let (tx, mut rx) = mpsc::channel(32);
+    let (tx, mut rx) = mpsc::channel(64);
 
     // Initial fetch of themes and fonts in the background
     let themes_dir = app.themes_dir.clone();
@@ -42,19 +42,19 @@ async fn main() -> Result<(), Box<dyn Error>> {
 
     // 3. Main Application Loop
     loop {
-        // Handle tick-based state updates (like spinner animations)
-        if app.state == AppState::Loading {
-            app.spinner_tick += 1;
-        }
-
-        // Draw the TUI frame
-        terminal.draw(|f| ui(f, &mut app))?;
-
-        // 4. Handle Incoming Messages from Background Tasks
+        // A. Handle Incoming Messages (Prioritize state updates before drawing)
         app.handle_messages(&mut rx, tx.clone());
 
-        // 5. User Input Handling (keyboard events)
-        if event::poll(Duration::from_millis(100))? {
+        // B. Handle tick-based state updates (animations)
+        // Usamos un contador global para animaciones más fluidas
+        app.spinner_tick += 1;
+
+        // C. Draw the TUI frame
+        terminal.draw(|f| ui(f, &mut app))?;
+
+        // D. User Input Handling (keyboard events)
+        // Reducimos el poll a 30ms para una respuesta mucho más ágil (aprox 33 fps)
+        if event::poll(Duration::from_millis(30))? {
             if let Event::Key(key) = event::read()? {
                 if app.handle_input(key, tx.clone())? {
                     break;

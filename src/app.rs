@@ -1,4 +1,5 @@
 use ratatui::widgets::ListState;
+use std::collections::HashSet;
 use std::env;
 use std::fs;
 use std::io;
@@ -25,6 +26,7 @@ pub fn contains_ignore_ascii_case(haystack: &str, needle: &str) -> bool {
 pub struct PluginAsset {
     pub name: String,
     pub description: String,
+    #[allow(dead_code)]
     pub documentation: String,
     pub module_name: String,
     pub init_script: Option<String>,
@@ -52,6 +54,7 @@ pub struct FontAsset {
 pub struct RemoteTheme {
     pub name: String,
     pub download_url: String,
+    #[allow(dead_code)]
     pub sha: String,
 }
 
@@ -72,10 +75,28 @@ pub struct SystemSpecs {
 
 /// Message types sent across the mpsc channel to update the TUI from background tasks
 pub enum AppMessage {
+    #[allow(dead_code)]
     ThemesLoaded(Vec<ThemeAsset>),
     FontsLoaded(Vec<FontAsset>),
-    ThemePreviewLoaded { theme: ThemeAsset, preview: String },
-    InstallProgress { line: String },
+    ThemePreviewLoaded {
+        theme: ThemeAsset,
+        preview: String,
+        request_id: u64,
+    },
+    ThemeDownloaded(std::path::PathBuf),
+    InstallUpdate {
+        stage: usize,
+        percentage: f32,
+    },
+    MassFontProgress {
+        index: usize,
+        total: usize,
+        name: String,
+    },
+    Success(String),
+    InstallProgress {
+        line: String,
+    },
     InstallFinished,
     Error(String),
     FontInstalled(String),
@@ -88,6 +109,7 @@ pub enum AppMessage {
 pub enum AppState {
     Loading,
     Main,
+    #[allow(dead_code)]
     Onboarding(SystemSpecs),
     DependencyMissing,
     InstallingDependency {
@@ -97,9 +119,21 @@ pub enum AppState {
     Success(String),
     FontSuccess(String),
     PluginSuccess(String),
+    ConfirmMassFontInstallation,
+    InstallingAllFonts {
+        progress: f32,
+        current_font: String,
+        index: usize,
+        total: usize,
+    },
     Installing(String),
     Error(String),
     Welcome,
+    ApplyingProgress {
+        name: String,
+        stage: usize,
+        progress: f32,
+    },
 }
 
 /// Active view/tab in the main interface
@@ -126,6 +160,7 @@ pub struct App {
     pub plugins_list_state: ListState,
     pub plugins: Vec<PluginAsset>,
     pub segments: Vec<SegmentAsset>,
+    #[allow(dead_code)]
     pub plugins_filter: String,
     pub segments_filter: String,
     pub spinner_tick: usize,
@@ -135,12 +170,32 @@ pub struct App {
     pub active_config_path: Option<PathBuf>,
     pub backup_manager: crate::backup::BackupManager,
     pub last_backup: Option<std::path::PathBuf>,
+    #[allow(dead_code)]
     pub diagnostic: crate::diagnostic::Diagnostic,
+    #[allow(dead_code)]
     pub plugin_installer: crate::plugin_installer::PluginInstaller,
     // Welcome screen state
-    pub welcome_selected_action: usize, // Índice de la acción rápida seleccionada
-    pub system_specs: Option<SystemSpecs>, // Cache de especificaciones del sistema
-    pub total_backups: usize, // Total de perfiles respaldados encontrados
+    pub welcome_selected_action: usize, // Index of the selected quick action
+    pub system_specs: Option<SystemSpecs>, // Cache for system specifications
+    pub total_backups: usize,           // Total backed up profiles found
+    pub preview_request_id: u64,        // ID to version and cancel obsolete previews
+    pub active_preview_task: Option<tokio::task::JoinHandle<()>>, // Handle to abort preview tasks
+    pub active_segments: HashSet<String>, // Cache of active segments to avoid repetitive I/O
+}
+
+/// Helper for zero-allocation case-insensitive ASCII substring matching
+fn contains_ignore_ascii_case(haystack: &str, needle: &str) -> bool {
+    if needle.is_empty() {
+        return true;
+    }
+    let needle_bytes = needle.as_bytes();
+    if haystack.len() < needle_bytes.len() {
+        return false;
+    }
+    haystack
+        .as_bytes()
+        .windows(needle_bytes.len())
+        .any(|w| w.eq_ignore_ascii_case(needle_bytes))
 }
 
 impl App {
@@ -155,6 +210,11 @@ impl App {
         };
         let themes_dir = home.join(".poshthemes");
 
+        // Ensure themes directory exists
+        if !themes_dir.exists() {
+            let _ = fs::create_dir_all(&themes_dir);
+        }
+
         let mut list_state = ListState::default();
         list_state.select(Some(0));
 
@@ -167,10 +227,36 @@ impl App {
         // 1. Initial system diagnostics
         let has_nerd_font = Self::check_nerd_font();
         let detected_profiles = Self::detect_profiles();
-        let specs = Self::gather_system_specs(has_nerd_font);        let mut app = App {
+        let specs = Self::gather_system_specs(has_nerd_font);
+
+        // 2. Load existing local themes
+        let mut local_themes = Vec::new();
+        if let Ok(entries) = fs::read_dir(&themes_dir) {
+            for entry in entries.flatten() {
+                let path = entry.path();
+                if path.is_file() && path.extension().map_or(false, |ext| ext == "json") {
+                    let name = path
+                        .file_name()
+                        .and_then(|n| n.to_str())
+                        .map(|s| s.replace(".omp.json", ""))
+                        .unwrap_or_default();
+
+                    if !name.is_empty() {
+                        local_themes.push(ThemeAsset {
+                            name,
+                            is_local: true,
+                            download_url: None,
+                        });
+                    }
+                }
+            }
+        }
+        local_themes.sort_by(|a, b| a.name.cmp(&b.name));
+
+        let mut app = App {
             state: AppState::Welcome,
             active_view: ActiveView::Themes,
-            themes: Vec::new(),
+            themes: local_themes,
             remote_themes: Vec::new(),
             fonts: Vec::new(),
             plugins: vec![
@@ -200,50 +286,50 @@ impl App {
                 SegmentAsset {
                     name: "Git Status".to_string(),
                     segment_type: "git".to_string(),
-                    description: "Muestra la rama actual y el estado de archivos de Git.".to_string(),
-                    documentation: "Esencial para el desarrollo colaborativo.".to_string(),
+                    description: "Shows current branch and Git file status.".to_string(),
+                    documentation: "Essential for collaborative development.".to_string(),
                     category: "Development".to_string(),
                 },
                 SegmentAsset {
-                    name: "Path (Ruta)".to_string(),
+                    name: "Path".to_string(),
                     segment_type: "path".to_string(),
-                    description: "Muestra la ubicación actual en el sistema de archivos.".to_string(),
-                    documentation: "Configurable para mostrar ruta completa o corta.".to_string(),
+                    description: "Shows current location in the file system.".to_string(),
+                    documentation: "Configurable for full or short path display.".to_string(),
                     category: "System".to_string(),
                 },
                 SegmentAsset {
                     name: "Session (User)".to_string(),
                     segment_type: "session".to_string(),
-                    description: "Muestra el usuario y host actual.".to_string(),
-                    documentation: "Útil para identificar rápidamente en qué cuenta/máquina estás.".to_string(),
+                    description: "Shows current user and host.".to_string(),
+                    documentation: "Quickly identify your current account/machine.".to_string(),
                     category: "System".to_string(),
                 },
                 SegmentAsset {
-                    name: "Battery (Batería)".to_string(),
+                    name: "Battery".to_string(),
                     segment_type: "battery".to_string(),
-                    description: "Visualiza el porcentaje de batería y estado de carga.".to_string(),
-                    documentation: "Cambia de color según el nivel de carga.".to_string(),
+                    description: "Displays battery percentage and charging status.".to_string(),
+                    documentation: "Changes color based on charge level.".to_string(),
                     category: "System".to_string(),
                 },
                 SegmentAsset {
                     name: "Execution Time".to_string(),
                     segment_type: "executiontime".to_string(),
-                    description: "Muestra cuánto duró el último comando ejecutado.".to_string(),
-                    documentation: "Perfecto para medir rendimiento de scripts.".to_string(),
+                    description: "Shows duration of the last command executed.".to_string(),
+                    documentation: "Perfect for measuring script performance.".to_string(),
                     category: "System".to_string(),
                 },
                 SegmentAsset {
                     name: "Node.js info".to_string(),
                     segment_type: "node".to_string(),
-                    description: "Muestra la versión de Node activa en el directorio.".to_string(),
-                    documentation: "Se activa automáticamente en proyectos Node.".to_string(),
+                    description: "Shows active Node version in the directory.".to_string(),
+                    documentation: "Automatically activates in Node projects.".to_string(),
                     category: "Development".to_string(),
                 },
                 SegmentAsset {
                     name: "Docker".to_string(),
                     segment_type: "docker".to_string(),
-                    description: "Muestra el estado de Docker y el contexto actual.".to_string(),
-                    documentation: "Requiere que Docker esté instalado y corriendo.".to_string(),
+                    description: "Shows current Docker status and context.".to_string(),
+                    documentation: "Requires Docker to be installed and running.".to_string(),
                     category: "Cloud".to_string(),
                 },
             ],
@@ -268,20 +354,62 @@ impl App {
             welcome_selected_action: 0,
             system_specs: Some(specs),
             total_backups: 0,
+            preview_request_id: 0,
+            active_preview_task: None,
+            active_segments: HashSet::new(),
         };
 
-        // Initialize active config path
+        // Initialize active config path and segments cache
         app.active_config_path = app.find_active_config_path();
+        app.refresh_active_segments();
 
         // Initialize backup count
         app.refresh_backup_count();
 
-        // 2. Pre-check for Oh My Posh installation
+        // 3. Pre-check for Oh My Posh installation
         if !app.check_omp_installed() {
             app.state = AppState::DependencyMissing;
         }
 
         app
+    }
+
+    /// Reads the current configuration file once and caches active segment types
+    pub fn refresh_active_segments(&mut self) {
+        let path = if let Some(p) = &self.active_config_path {
+            p
+        } else {
+            self.active_segments.clear();
+            return;
+        };
+
+        let mut active = HashSet::new();
+        if let Ok(content) = fs::read_to_string(path) {
+            if let Ok(json) = serde_json::from_str::<serde_json::Value>(&content) {
+                // Look in top-level segments
+                if let Some(segments) = json.get("segments").and_then(|v| v.as_array()) {
+                    for s in segments {
+                        if let Some(t) = s.get("type").and_then(|v| v.as_str()) {
+                            active.insert(t.to_string());
+                        }
+                    }
+                }
+
+                // Look in blocks
+                if let Some(blocks) = json.get("blocks").and_then(|v| v.as_array()) {
+                    for block in blocks {
+                        if let Some(segments) = block.get("segments").and_then(|v| v.as_array()) {
+                            for s in segments {
+                                if let Some(t) = s.get("type").and_then(|v| v.as_str()) {
+                                    active.insert(t.to_string());
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        self.active_segments = active;
     }
 
     /// Busca la ruta del archivo de configuración activo desde el perfil de PowerShell
@@ -299,12 +427,13 @@ impl App {
                         if parts.len() > 1 {
                             let path_part = parts[1].trim();
                             // Tomar el contenido entre comillas si existe
-                            let config_path = if path_part.starts_with('"') || path_part.starts_with('\'') {
-                                let quote = path_part.chars().next().unwrap();
-                                path_part.split(quote).nth(1).map(|s| s.to_string())
-                            } else {
-                                path_part.split_whitespace().next().map(|s| s.to_string())
-                            };
+                            let config_path =
+                                if path_part.starts_with('"') || path_part.starts_with('\'') {
+                                    let quote = path_part.chars().next().unwrap();
+                                    path_part.split(quote).nth(1).map(|s| s.to_string())
+                                } else {
+                                    path_part.split_whitespace().next().map(|s| s.to_string())
+                                };
 
                             if let Some(p_str) = config_path {
                                 let path = PathBuf::from(p_str);
@@ -359,15 +488,27 @@ impl App {
 
         // 1. Try to guess standard paths first (Zero-latency)
         if let Some(docs) = dirs::document_dir() {
-            let pwsh5 = docs.join("WindowsPowerShell").join("Microsoft.PowerShell_profile.ps1");
-            let pwsh7 = docs.join("PowerShell").join("Microsoft.PowerShell_profile.ps1");
-            if pwsh5.exists() { profiles.push(pwsh5); }
-            if pwsh7.exists() { profiles.push(pwsh7); }
+            let pwsh5 = docs
+                .join("WindowsPowerShell")
+                .join("Microsoft.PowerShell_profile.ps1");
+            let pwsh7 = docs
+                .join("PowerShell")
+                .join("Microsoft.PowerShell_profile.ps1");
+            if pwsh5.exists() {
+                profiles.push(pwsh5);
+            }
+            if pwsh7.exists() {
+                profiles.push(pwsh7);
+            }
         }
 
         // 2. If nothing found or to be sure, ask the shells (Lazy detection later would be better, but let's at least deduplicate)
         if profiles.is_empty() {
-            let shells = if cfg!(windows) { vec!["powershell", "pwsh"] } else { vec!["pwsh"] };
+            let shells = if cfg!(windows) {
+                vec!["powershell", "pwsh"]
+            } else {
+                vec!["pwsh"]
+            };
             for shell in shells {
                 if let Ok(out) = std::process::Command::new(shell)
                     .args(["-NoProfile", "-Command", "Write-Host -NoNewline $PROFILE"])
@@ -451,60 +592,11 @@ impl App {
 
     /// Asynchronously fetches the official themes catalog from GitHub
     pub fn fetch_official_themes(&self, tx: mpsc::Sender<AppMessage>) {
+        let themes_dir = self.themes_dir.clone();
         tokio::spawn(async move {
-            let client = reqwest::Client::new();
-            let res = client.get("https://api.github.com/repos/JanDeDobbeleer/oh-my-posh/contents/themes")
-                .header("User-Agent", "PoshBuddy-Updater")
-                .send()
-                .await;
-
-            match res {
-                Ok(response) => {
-                    if let Ok(items) = response.json::<Vec<serde_json::Value>>().await {
-                        let themes: Vec<RemoteTheme> = items.into_iter()
-                            .filter(|i| i["name"].as_str().unwrap_or("").ends_with(".omp.json"))
-                            .map(|i| RemoteTheme {
-                                name: i["name"].as_str().unwrap_or("").replace(".omp.json", "").to_string(),
-                                download_url: i["download_url"].as_str().unwrap_or("").to_string(),
-                                sha: i["sha"].as_str().unwrap_or("").to_string(),
-                            })
-                            .collect();
-                        let _ = tx.send(AppMessage::RemoteThemesLoaded(themes)).await;
-                    }
-                }
-                Err(e) => {
-                    let _ = tx.send(AppMessage::Error(format!("Fetch themes failed: {}", e))).await;
-                }
-            }
+            crate::api::setup_app_task(tx, themes_dir).await;
         });
     }
-
-    /// Downloads and installs a remote theme locally
-    pub fn download_theme(&self, theme: RemoteTheme, tx: mpsc::Sender<AppMessage>) {
-        let path = self.themes_dir.join(format!("{}.omp.json", theme.name));
-        tokio::spawn(async move {
-            match reqwest::get(&theme.download_url).await {
-                Ok(resp) => {
-                    if let Ok(bytes) = resp.bytes().await {
-                        if let Err(e) = fs::write(&path, &bytes) {
-                            let _ = tx.send(AppMessage::Error(format!("Save failed: {}", e))).await;
-                        } else {
-                            // After download, tell the app to refresh local themes
-                            let _ = tx.send(AppMessage::ThemesLoaded(vec![ThemeAsset {
-                                name: format!("{}.omp.json", theme.name),
-                                is_local: true,
-                                download_url: None,
-                            }])).await;
-                        }
-                    }
-                }
-                Err(e) => {
-                    let _ = tx.send(AppMessage::Error(format!("Download failed: {}", e))).await;
-                }
-            }
-        });
-    }
-
 
     /// Returns a filtered list of fonts based on search criteria
     pub fn filtered_fonts(&self) -> Vec<FontAsset> {
@@ -539,43 +631,14 @@ impl App {
 
     /// Checks if a segment is active in the currently loaded Oh My Posh config
     pub fn is_segment_active(&self, segment: &SegmentAsset) -> bool {
-        let path = if let Some(p) = &self.active_config_path {
-            p
-        } else {
-            return false;
-        };
-
-        if let Ok(content) = fs::read_to_string(path) {
-            if let Ok(json) = serde_json::from_str::<serde_json::Value>(&content) {
-                // In modern OMP themes, segments are usually in blocks[].segments[]
-                // We'll check top-level segments first, then look into blocks
-                if let Some(segments) = json.get("segments").and_then(|v| v.as_array()) {
-                    if segments.iter().any(|s| {
-                        s.get("type").and_then(|v| v.as_str()) == Some(&segment.segment_type)
-                    }) {
-                        return true;
-                    }
-                }
-                
-                if let Some(blocks) = json.get("blocks").and_then(|v| v.as_array()) {
-                    for block in blocks {
-                        if let Some(segments) = block.get("segments").and_then(|v| v.as_array()) {
-                            if segments.iter().any(|s| {
-                                s.get("type").and_then(|v| v.as_str()) == Some(&segment.segment_type)
-                            }) {
-                                return true;
-                            }
-                        }
-                    }
-                }
-            }
-        }
-        false
+        self.active_segments.contains(&segment.segment_type)
     }
 
     /// Surgical JSON edit to toggle a segment in the active Oh My Posh theme
     pub fn toggle_segment(&mut self, segment: &SegmentAsset) -> io::Result<()> {
-        let path = self.active_config_path.as_ref()
+        let path = self
+            .active_config_path
+            .as_ref()
             .ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, "No active config found"))?;
 
         let content = fs::read_to_string(path)?;
@@ -584,10 +647,13 @@ impl App {
 
         // Logic to find and remove or add to the FIRST block found
         let mut toggled = false;
-        
+
         if let Some(blocks) = json.get_mut("blocks").and_then(|v| v.as_array_mut()) {
             if let Some(first_block) = blocks.first_mut() {
-                if let Some(segments) = first_block.get_mut("segments").and_then(|v| v.as_array_mut()) {
+                if let Some(segments) = first_block
+                    .get_mut("segments")
+                    .and_then(|v| v.as_array_mut())
+                {
                     let pos = segments.iter().position(|s| {
                         s.get("type").and_then(|v| v.as_str()) == Some(&segment.segment_type)
                     });
@@ -613,22 +679,32 @@ impl App {
         }
 
         if toggled {
-            let new_json = serde_json::to_string_pretty(&json)
-                .map_err(|e| io::Error::other(e.to_string()))?;
+            let new_json =
+                serde_json::to_string_pretty(&json).map_err(|e| io::Error::other(e.to_string()))?;
             fs::write(path, new_json)?;
+            self.refresh_active_segments(); // Update cache after write
             Ok(())
         } else {
-            Err(io::Error::other("Could not find a valid segments block to edit"))
+            Err(io::Error::other(
+                "Could not find a valid segments block to edit",
+            ))
         }
     }
 
-
     /// Actualiza quirúrgicamente una sección del perfil de PowerShell envuelta en marcadores de PoshBuddy
-    pub fn update_profile_safe(&self, profile: &std::path::Path, key: &str, content: &str, description: &str) -> io::Result<()> {
-        let start_marker = format!("# <PoshBuddy: START - {}>", key);
-        let end_marker = format!("# <PoshBuddy: END - {}>", key);
-        let mut new_lines = Vec::new();
+    pub fn update_profile_safe(
+        &self,
+        profile: &std::path::Path,
+        key: &str,
+        content: &str,
+        description: &str,
+    ) -> io::Result<()> {
+        let legacy_start = "# <PoshBuddy: START";
+        let legacy_end = "# <PoshBuddy: END";
+        let start_marker = format!("## POSHBUDDY AUTO-GENERATED CONFIG - START ({})", key);
+        let end_marker = format!("## POSHBUDDY AUTO-GENERATED CONFIG - END ({})", key);
 
+        let mut new_lines = Vec::new();
         let existing_content = if profile.exists() {
             fs::read_to_string(profile)?
         } else {
@@ -639,13 +715,21 @@ impl App {
         let mut found = false;
 
         for line in existing_content.lines() {
-            if line.contains(&start_marker) {
+            let trimmed = line.trim();
+
+            // 1. Purge legacy markers (Clean Migration)
+            if trimmed.starts_with(legacy_start) || trimmed.starts_with(legacy_end) {
+                continue;
+            }
+
+            // 2. Handle new standard markers
+            if trimmed.starts_with(&start_marker) {
                 inside_block = true;
                 found = true;
                 new_lines.push(start_marker.clone());
-                new_lines.push(format!("# {}", description));
+                new_lines.push(format!("## Description: {}", description));
                 new_lines.push(content.to_string());
-            } else if line.contains(&end_marker) {
+            } else if trimmed.starts_with(&end_marker) {
                 inside_block = false;
                 new_lines.push(end_marker.clone());
             } else if !inside_block {
@@ -658,7 +742,7 @@ impl App {
                 new_lines.push(String::new());
             }
             new_lines.push(start_marker);
-            new_lines.push(format!("# {}", description));
+            new_lines.push(format!("## Description: {}", description));
             new_lines.push(content.to_string());
             new_lines.push(end_marker);
         }
@@ -690,61 +774,184 @@ impl App {
         });
     }
 
-    /// Asynchronously generates a real prompt preview for a theme using isolation
-    pub fn load_theme_preview(&self, theme: ThemeAsset, tx: mpsc::Sender<AppMessage>) {
-        if !theme.is_local {
-            let _ = tx.send(AppMessage::ThemePreviewLoaded {
-                theme,
-                preview: " [Remote Theme: Pulsa ENTER para descargar y previsualizar] ".to_string(),
-            });
+    /// Installs all available fonts sequentially with progress reporting
+    pub fn install_all_fonts(&self, tx: mpsc::Sender<AppMessage>) {
+        let fonts = self.fonts.clone();
+        let cmd = OMP_BINARY;
+
+        if fonts.is_empty() {
+            let _ = tx.try_send(AppMessage::Error(
+                "No fonts available to install.".to_string(),
+            ));
             return;
         }
 
-        let cmd = OMP_BINARY;
-        let theme_name = theme.name.clone();
-        let theme_path = self.themes_dir.join(format!("{}.omp.json", theme_name));
-        let theme_cloned = theme.clone();
-
         tokio::spawn(async move {
+            let total = fonts.len();
+            for (idx, font) in fonts.iter().enumerate() {
+                let current_name = font.name.clone();
+
+                // Update progress before starting
+                let _ = tx
+                    .send(AppMessage::MassFontProgress {
+                        index: idx + 1,
+                        total,
+                        name: current_name.clone(),
+                    })
+                    .await;
+
+                // Run installation for this specific font
+                let output = tokio::process::Command::new(cmd)
+                    .args(["font", "install", &current_name])
+                    .output()
+                    .await;
+
+                if let Err(e) = output {
+                    let _ = tx
+                        .send(AppMessage::Error(format!(
+                            "Failed to install {}: {}",
+                            current_name, e
+                        )))
+                        .await;
+                    return;
+                }
+            }
+
+            let _ = tx
+                .send(AppMessage::Success(
+                    "All Nerd Fonts have been installed successfully!".to_string(),
+                ))
+                .await;
+        });
+    }
+
+    /// Asynchronously generates a real prompt preview for a theme using isolation
+    pub fn load_theme_preview(&mut self, theme: ThemeAsset, tx: mpsc::Sender<AppMessage>) {
+        // 1. Cancel previous task if active to avoid race conditions
+        if let Some(handle) = self.active_preview_task.take() {
+            handle.abort();
+        }
+
+        // 2. Increment request ID to track the most recent request
+        self.preview_request_id += 1;
+        let current_id = self.preview_request_id;
+
+        let theme_cloned = theme.clone();
+        let themes_dir = self.themes_dir.clone();
+        let cmd = OMP_BINARY;
+
+        let handle = tokio::spawn(async move {
+            let final_theme_path = if !theme_cloned.is_local {
+                if let Some(url) = &theme_cloned.download_url {
+                    match crate::api::download_to_temp(&theme_cloned.name, url).await {
+                        Ok(p) => p,
+                        Err(e) => {
+                            let _ = tx
+                                .send(AppMessage::ThemePreviewLoaded {
+                                    theme: theme_cloned,
+                                    preview: format!(" Error downloading preview: {}", e),
+                                    request_id: current_id,
+                                })
+                                .await;
+                            return;
+                        }
+                    }
+                } else {
+                    return;
+                }
+            } else {
+                // Ensure we use the clean name and append the proper extension
+                themes_dir.join(format!("{}.omp.json", theme_cloned.name))
+            };
+
+            // Verify file exists and get absolute path
+            let final_theme_path = match final_theme_path.canonicalize() {
+                Ok(p) => p,
+                Err(_) => {
+                    if !final_theme_path.exists() {
+                        let _ = tx
+                            .send(AppMessage::ThemePreviewLoaded {
+                                theme: theme_cloned,
+                                preview: " Error: Theme file not found locally ".to_string(),
+                                request_id: current_id,
+                            })
+                            .await;
+                        return;
+                    }
+                    final_theme_path
+                }
+            };
+
             let mut cmd_obj = tokio::process::Command::new(cmd);
+            
+            // Get current working directory for a more realistic preview
+            let current_dir = std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."));
+
+            // IMPORTANT: Clear environment variables that might force OMP to use the current theme
             cmd_obj
-                .env_clear()
-                .env("PATH", std::env::var("PATH").unwrap_or_default())
-                .env("USERPROFILE", std::env::var("USERPROFILE").unwrap_or_default())
-                .env("SYSTEMROOT", std::env::var("SYSTEMROOT").unwrap_or_default())
-                .env("SystemDrive", std::env::var("SystemDrive").unwrap_or_default())
-                .env("TEMP", std::env::var("TEMP").unwrap_or_default())
+                .env_remove("POSH_THEME")
+                .env_remove("OMP_CONFIG")
+                .env_remove("POSH_THEME_DIR")
+                .kill_on_drop(true)
                 .args([
                     "print",
                     "primary",
                     "--config",
-                    &theme_path.to_string_lossy(),
+                    &final_theme_path.to_string_lossy(),
                     "--shell",
-                    "pwsh",
+                    "plain", // Using 'plain' avoids shell-specific fallback logic
                     "--force",
                     "--status",
                     "0",
+                    "--pwd",
+                    &current_dir.to_string_lossy(),
+                    "--no-status",
                 ]);
 
-            let output = cmd_obj.output().await;
+            // Set a strict timeout for the preview generation
+            let output =
+                tokio::time::timeout(std::time::Duration::from_millis(1500), cmd_obj.output())
+                    .await;
 
             match output {
-                Ok(out) => {
+                Ok(Ok(out)) => {
                     let raw = String::from_utf8_lossy(&out.stdout).to_string();
-                    let preview = format!(" {}", raw.trim_end());
-                    let _ = tx.send(AppMessage::ThemePreviewLoaded {
-                        theme: theme_cloned,
-                        preview,
-                    }).await;
+                    let preview = if raw.trim().is_empty() {
+                        " Error: Empty preview generated ".to_string()
+                    } else {
+                        format!(" {}", raw.trim_end())
+                    };
+
+                    let _ = tx
+                        .send(AppMessage::ThemePreviewLoaded {
+                            theme: theme_cloned,
+                            preview,
+                            request_id: current_id,
+                        })
+                        .await;
                 }
-                Err(e) => {
-                    let _ = tx.send(AppMessage::ThemePreviewLoaded {
-                        theme: theme_cloned,
-                        preview: format!(" Error: {}", e),
-                    }).await;
+                Ok(Err(e)) => {
+                    let _ = tx
+                        .send(AppMessage::ThemePreviewLoaded {
+                            theme: theme_cloned,
+                            preview: format!(" Command error: {}", e),
+                            request_id: current_id,
+                        })
+                        .await;
+                }
+                Err(_) => {
+                    let _ = tx
+                        .send(AppMessage::ThemePreviewLoaded {
+                            theme: theme_cloned,
+                            preview: " Timeout: Theme too complex for quick preview ".to_string(),
+                            request_id: current_id,
+                        })
+                        .await;
                 }
             }
         });
+
+        self.active_preview_task = Some(handle);
     }
 
     /// Handles automatic installation of Oh My Posh via WinGet (Windows) or Homebrew (Linux/macOS)
@@ -777,20 +984,18 @@ impl App {
             .map_err(|e| e.to_string());
 
             match child {
-                Ok(mut child) => {
-                    match child.wait().await {
-                        Ok(status) if status.success() => {
-                            let _ = tx.send(AppMessage::InstallFinished).await;
-                        }
-                        _ => {
-                            let _ = tx
-                                .send(AppMessage::Error(
-                                    "Installation failed via Winget".to_string(),
-                                ))
-                                .await;
-                        }
+                Ok(mut child) => match child.wait().await {
+                    Ok(status) if status.success() => {
+                        let _ = tx.send(AppMessage::InstallFinished).await;
                     }
-                }
+                    _ => {
+                        let _ = tx
+                            .send(AppMessage::Error(
+                                "Installation failed via Winget".to_string(),
+                            ))
+                            .await;
+                    }
+                },
                 Err(e) => {
                     let _ = tx
                         .send(AppMessage::Error(format!(
@@ -842,20 +1047,30 @@ impl App {
         }
 
         let content = fs::read_to_string(profile)?;
-        let start_marker = format!("# <PoshBuddy: START - {}>", key);
-        let end_marker = format!("# <PoshBuddy: END - {}>", key);
+        let legacy_start = "# <PoshBuddy: START";
+        let legacy_end = "# <PoshBuddy: END";
+        let start_marker = format!("## POSHBUDDY AUTO-GENERATED CONFIG - START ({})", key);
+        let end_marker = format!("## POSHBUDDY AUTO-GENERATED CONFIG - END ({})", key);
 
         let mut new_lines = Vec::new();
         let mut inside_block = false;
         let mut found = false;
 
         for line in content.lines() {
-            if line.contains(&start_marker) {
+            let trimmed = line.trim();
+
+            // Purge both legacy and new markers
+            if trimmed.starts_with(legacy_start) || trimmed.starts_with(legacy_end) {
+                found = true;
+                continue;
+            }
+
+            if trimmed.starts_with(&start_marker) {
                 inside_block = true;
                 found = true;
                 continue;
             }
-            if line.contains(&end_marker) {
+            if trimmed.starts_with(&end_marker) {
                 inside_block = false;
                 continue;
             }
@@ -870,31 +1085,195 @@ impl App {
         Ok(())
     }
 
-    /// Atomically updates all detected shell profiles to initialize Oh My Posh with the selected theme
-    pub fn apply_theme(&mut self, theme_name: &str) -> io::Result<()> {
-        let theme_path = self.themes_dir.join(theme_name);
-        
-        let config_line = format!(
-            "oh-my-posh init powershell --config \"{}\" | Out-String | Invoke-Expression",
-            theme_path.display()
-        );
+    /// Advanced 4-stage theme application flow: Download -> Verify -> Backup -> Apply
+    pub fn apply_theme_advanced(&mut self, theme: ThemeAsset, tx: mpsc::Sender<AppMessage>) {
+        let name = theme.name.clone();
+        let themes_dir = self.themes_dir.clone();
+        let profiles = self.detected_profiles.clone();
+        let backup_manager = self.backup_manager.clone();
+        let tx_cloned = tx.clone();
 
-        for profile in &self.detected_profiles {
-            self.backup_manager.backup_profile(profile, &format!("Apply Theme: {}", theme_name))
-                .map_err(|e| io::Error::other(e.to_string()))?;
+        self.state = AppState::ApplyingProgress {
+            name: name.clone(),
+            stage: 0, // Preparing
+            progress: 10.0,
+        };
 
-            self.update_profile_safe(
-                profile, 
-                "THEME", 
-                &config_line, 
-                &format!("Aplica el tema de Oh My Posh: {}", theme_name)
-            )?;
-        }
+        tokio::spawn(async move {
+            // Stage 0: Download/Locate
+            let _ = tx_cloned
+                .send(AppMessage::InstallUpdate {
+                    stage: 0,
+                    percentage: 25.0,
+                })
+                .await;
 
-        // Dejar rastro del tema actual para la UI
-        self.active_config_path = Some(theme_path);
-        
-        Ok(())
+            let source_path = if theme.is_local {
+                let name_clean = theme.name.replace(".omp.json", "");
+                themes_dir.join(format!("{}.omp.json", name_clean))
+            } else {
+                if !crate::api::check_internet_connectivity() {
+                    let _ = tx_cloned
+                        .send(AppMessage::Error(
+                            "No internet connection detected. Check your network.".to_string(),
+                        ))
+                        .await;
+                    return;
+                }
+
+                if let Some(url) = theme.download_url {
+                    // Download to a temporary location first for verification
+                    let temp_dir = std::env::temp_dir();
+                    match crate::api::download_theme_file(&theme.name, &url, &temp_dir).await {
+                        Ok(p) => p,
+                        Err(e) => {
+                            let _ = tx_cloned
+                                .send(AppMessage::Error(format!("Download failed: {}", e)))
+                                .await;
+                            return;
+                        }
+                    }
+                } else {
+                    let _ = tx_cloned
+                        .send(AppMessage::Error(
+                            "Missing download URL for remote theme".to_string(),
+                        ))
+                        .await;
+                    return;
+                }
+            };
+
+            // Stage 1: Verify (Try to parse as JSON)
+            let _ = tx_cloned
+                .send(AppMessage::InstallUpdate {
+                    stage: 1,
+                    percentage: 50.0,
+                })
+                .await;
+            match tokio::fs::read_to_string(&source_path).await {
+                Ok(content) => {
+                    if serde_json::from_str::<serde_json::Value>(&content).is_err() {
+                        let _ = tx_cloned
+                            .send(AppMessage::Error("Invalid theme JSON format".to_string()))
+                            .await;
+                        return;
+                    }
+                }
+                Err(e) => {
+                    let _ = tx_cloned
+                        .send(AppMessage::Error(format!(
+                            "Could not read theme file: {}",
+                            e
+                        )))
+                        .await;
+                    return;
+                }
+            }
+
+            // Stage 2: Backup
+            let _ = tx_cloned
+                .send(AppMessage::InstallUpdate {
+                    stage: 2,
+                    percentage: 75.0,
+                })
+                .await;
+            for profile in &profiles {
+                if let Err(e) = backup_manager
+                    .backup_profile(profile, &format!("Apply Theme Advanced: {}", name))
+                {
+                    let _ = tx_cloned
+                        .send(AppMessage::Error(format!("Backup failed: {}", e)))
+                        .await;
+                    return;
+                }
+            }
+
+            // Stage 3: Apply
+            let _ = tx_cloned
+                .send(AppMessage::InstallUpdate {
+                    stage: 3,
+                    percentage: 90.0,
+                })
+                .await;
+
+            let final_theme_path = if !theme.is_local {
+                let dest = themes_dir.join(format!("{}.omp.json", theme.name));
+                if let Err(e) = tokio::fs::copy(&source_path, &dest).await {
+                    let _ = tx_cloned
+                        .send(AppMessage::Error(format!("Failed to save theme: {}", e)))
+                        .await;
+                    return;
+                }
+                dest
+            } else {
+                source_path
+            };
+
+            let config_line = format!(
+                "oh-my-posh init powershell --config \"{}\" | Out-String | Invoke-Expression",
+                final_theme_path.to_string_lossy()
+            );
+
+            let start_marker = "## POSHBUDDY AUTO-GENERATED CONFIG - START (THEME)";
+            let end_marker = "## POSHBUDDY AUTO-GENERATED CONFIG - END (THEME)";
+            let line_ending = if cfg!(windows) { "\r\n" } else { "\n" };
+
+            for profile in &profiles {
+                let existing_content = tokio::fs::read_to_string(profile).await.unwrap_or_default();
+                let mut new_lines = Vec::new();
+                let mut inside_block = false;
+                let mut found = false;
+
+                for line in existing_content.lines() {
+                    let trimmed = line.trim();
+                    if trimmed.starts_with("# <PoshBuddy: START")
+                        || trimmed.starts_with("# <PoshBuddy: END")
+                    {
+                        continue;
+                    }
+
+                    if trimmed.starts_with(start_marker) {
+                        inside_block = true;
+                        found = true;
+                        new_lines.push(start_marker.to_string());
+                        new_lines.push(format!("## Description: Apply Oh My Posh theme: {}", name));
+                        new_lines.push(config_line.clone());
+                    } else if trimmed.starts_with(end_marker) {
+                        inside_block = false;
+                        new_lines.push(end_marker.to_string());
+                    } else if !inside_block {
+                        new_lines.push(line.to_string());
+                    }
+                }
+
+                if !found {
+                    if !existing_content.is_empty() && !existing_content.ends_with('\n') {
+                        new_lines.push(String::new());
+                    }
+                    new_lines.push(start_marker.to_string());
+                    new_lines.push(format!("## Description: Apply Oh My Posh theme: {}", name));
+                    new_lines.push(config_line.clone());
+                    new_lines.push(end_marker.to_string());
+                }
+
+                if let Err(e) = tokio::fs::write(profile, new_lines.join(line_ending)).await {
+                    let _ = tx_cloned
+                        .send(AppMessage::Error(format!("Profile update failed: {}", e)))
+                        .await;
+                    return;
+                }
+            }
+
+            let _ = tx_cloned
+                .send(AppMessage::Success(format!(
+                    "Theme '{}' applied successfully!",
+                    name
+                )))
+                .await;
+            let _ = tx_cloned
+                .send(AppMessage::ThemeDownloaded(final_theme_path))
+                .await;
+        });
     }
 
     /// Toggles the activation state of a plugin by adding or removing it from all detected profiles
@@ -903,7 +1282,8 @@ impl App {
         let key = format!("PLUGIN_{}", plugin.module_name.to_uppercase());
 
         for profile in &self.detected_profiles {
-            self.backup_manager.backup_profile(profile, &format!("Toggle Plugin: {}", plugin.name))
+            self.backup_manager
+                .backup_profile(profile, &format!("Toggle Plugin: {}", plugin.name))
                 .map_err(|e| io::Error::other(e.to_string()))?;
 
             if is_active {
@@ -912,14 +1292,17 @@ impl App {
                 let payload = if let Some(init) = &plugin.init_script {
                     init.clone()
                 } else {
-                    format!("Import-Module {} -ErrorAction SilentlyContinue", plugin.module_name)
+                    format!(
+                        "Import-Module {} -ErrorAction SilentlyContinue",
+                        plugin.module_name
+                    )
                 };
 
                 self.update_profile_safe(
-                    profile, 
-                    &key, 
-                    &payload, 
-                    &format!("Plugin: {} - {}", plugin.name, plugin.description)
+                    profile,
+                    &key,
+                    &payload,
+                    &format!("Plugin: {} - {}", plugin.name, plugin.description),
                 )?;
             }
         }
@@ -989,18 +1372,53 @@ impl App {
                     fonts.sort_by(|a, b| a.name.cmp(&b.name));
                     self.fonts = fonts;
                 }
-                AppMessage::ThemePreviewLoaded { theme, preview } => {
-                    let filtered = self.filtered_themes();
-                    if let Some(selected_index) = self.list_state.selected() {
-                        if let Some(current_theme) = filtered.get(selected_index) {
-                            if current_theme.name == theme.name {
-                                self.theme_preview = preview;
+                AppMessage::ThemePreviewLoaded {
+                    theme,
+                    preview,
+                    request_id,
+                } => {
+                    if request_id == self.preview_request_id {
+                        let filtered = self.filtered_themes();
+                        if let Some(selected_index) = self.list_state.selected() {
+                            if let Some(current_theme) = filtered.get(selected_index) {
+                                if current_theme.name == theme.name {
+                                    self.theme_preview = preview;
+                                }
                             }
                         }
                     }
                 }
                 AppMessage::RemoteThemesLoaded(themes) => {
                     self.remote_themes = themes;
+                }
+                AppMessage::ThemeDownloaded(path) => {
+                    if let Some(name) = path.file_name().and_then(|n| n.to_str()) {
+                        let clean_name = name.replace(".omp.json", "");
+                        let theme_asset = ThemeAsset {
+                            name: clean_name,
+                            is_local: true,
+                            download_url: None,
+                        };
+
+                        if !self.themes.iter().any(|t| t.name == theme_asset.name) {
+                            self.themes.push(theme_asset.clone());
+                            self.themes.sort_by(|a, b| a.name.cmp(&b.name));
+                        }
+                        self.active_config_path = Some(path);
+                        self.refresh_active_segments(); // Update segments cache for the new theme
+                    }
+                }
+                AppMessage::InstallUpdate { stage, percentage } => {
+                    if let AppState::ApplyingProgress { name, .. } = &self.state {
+                        self.state = AppState::ApplyingProgress {
+                            name: name.clone(),
+                            stage,
+                            progress: percentage,
+                        };
+                    }
+                }
+                AppMessage::Success(msg) => {
+                    self.state = AppState::Success(msg);
                 }
                 AppMessage::FontInstalled(name) => {
                     self.state = AppState::FontSuccess(name);
@@ -1026,6 +1444,15 @@ impl App {
                     let themes_dir = self.themes_dir.clone();
                     tokio::spawn(crate::api::setup_app_task(tx.clone(), themes_dir));
                 }
+                AppMessage::MassFontProgress { index, total, name } => {
+                    let percentage = (index as f32 / total as f32) * 100.0;
+                    self.state = AppState::InstallingAllFonts {
+                        progress: percentage,
+                        current_font: name,
+                        index,
+                        total,
+                    };
+                }
                 AppMessage::Error(e) => {
                     self.state = AppState::Error(e);
                 }
@@ -1044,386 +1471,418 @@ impl App {
             return Ok(false);
         }
 
-        // Global shortcut: Ctrl+R to restore last backup
-        if key.code == KeyCode::Char('r') && key.modifiers.contains(KeyModifiers::CONTROL) {
-            match self.restore_last_backup() {
-                Ok(count) => {
-                    if count > 0 {
-                        self.state =
-                            AppState::Success(format!("Backup restaurado ({} perfiles)", count));
-                    } else {
-                        self.state = AppState::Error("No hay backups disponibles".to_string());
-                    }
-                }
-                Err(e) => {
-                    self.state = AppState::Error(format!("Error al restaurar: {}", e));
-                }
-            }
-            return Ok(false);
-        }
+        // --- 1. GLOBAL COMMANDS (Work across most states) ---
 
-        if self.state == AppState::DependencyMissing {
-            if key.code == KeyCode::Enter {
-                self.install_omp(tx.clone());
-            }
-            if key.code == KeyCode::Char('q') || key.code == KeyCode::Esc {
-                return Ok(true);
-            }
-            return Ok(false);
-        }
-
-        if let AppState::Onboarding(_) = self.state {
-            match key.code {
-                KeyCode::Enter => {
-                    if self.themes.is_empty() {
-                        self.state = AppState::Loading;
-                    } else {
-                        self.state = AppState::Main;
-                    }
-                }
-                KeyCode::Char('q') | KeyCode::Esc => return Ok(true),
-                _ => {}
-            }
-            return Ok(false);
-        }
-
-        if let AppState::Success(_) = self.state {
+        // Force Quit
+        if key.code == KeyCode::Char('c') && key.modifiers.contains(KeyModifiers::CONTROL) {
             return Ok(true);
         }
 
-        if let AppState::FontSuccess(_) = self.state {
-            self.state = AppState::Main;
-            return Ok(false);
-        }
-
-        if let AppState::PluginSuccess(_) = self.state {
-            self.state = AppState::Main;
-            self.active_view = ActiveView::Segments;
-            return Ok(false);
-        }
-
-        // Welcome screen - Quick actions navigation
-        if self.state == AppState::Welcome {
-            const NUM_ACTIONS: usize = 8;
-
+        // Global Backup/Restore
+        if key.modifiers.contains(KeyModifiers::CONTROL) {
             match key.code {
-                KeyCode::Up => {
-                    if self.welcome_selected_action > 0 {
-                        self.welcome_selected_action -= 1;
+                KeyCode::Char('r') => {
+                    match self.restore_last_backup() {
+                        Ok(count) if count > 0 => {
+                            self.state = AppState::Success(format!(
+                                "Restored {} profiles from backup",
+                                count
+                            ))
+                        }
+                        Ok(_) => {
+                            self.state = AppState::Error("No backups found to restore".to_string())
+                        }
+                        Err(e) => self.state = AppState::Error(format!("Restore failed: {}", e)),
                     }
+                    return Ok(false);
                 }
-                KeyCode::Down => {
-                    if self.welcome_selected_action < NUM_ACTIONS - 1 {
-                        self.welcome_selected_action += 1;
-                    }
-                }
-                KeyCode::Enter => {
-                    // Ejecutar acción seleccionada
-                    match self.welcome_selected_action {
-                        0 => {
-                            // Aplicar tema aleatorio
-                            if !self.themes.is_empty() {
-                                use std::time::{SystemTime, UNIX_EPOCH};
-                                let seed = SystemTime::now()
-                                    .duration_since(UNIX_EPOCH)
-                                    .unwrap_or_default()
-                                    .as_secs() as usize;
-                                let idx = seed % self.themes.len();
-                                if let Some(random_theme) = self.themes.get(idx) {
-                                    let name = random_theme.name.clone();
-                                    if let Err(e) = self.apply_theme(&name) {
-                                        self.state =
-                                            AppState::Error(format!("Failed to apply fallback: {}", e));
-                                    } else {
-                                        self.state = AppState::Success(format!(
-                                            "Tema '{}' aplicado!",
-                                            name
-                                        ));
-                                    }
-                                }
-                            } else {
-                                self.state =
-                                    AppState::Error("No hay temas disponibles".to_string());
-                            }
-                        }
-                        1 => {
-                            // Instalar Nerd Font (Acción real)
-                            let font_name = "CascadiaCode".to_string();
-                            self.state = AppState::Installing(font_name.clone());
-                            self.install_font(font_name, tx.clone());
-                        }
-                        2 => {
-                            // Instalar Terminal-Icons (Acción real)
-                            let plugin = self.plugins.iter().find(|p| p.name == "Terminal-Icons").cloned();
-                            if let Some(p) = plugin {
-                                if let Err(e) = self.toggle_plugin(&p) {
-                                    self.state = AppState::Error(format!("Failed to install plugin: {}", e));
-                                } else {
-                                    self.state = AppState::PluginSuccess(p.name);
-                                }
-                            }
-                        }
-                        3 => {
-                            // Ver diagnóstico
-                            match self.diagnostic.run_full_diagnostic(&self.detected_profiles) {
-                                Ok(result) => {
-                                    let report = self.diagnostic.format_report(&result);
-                                    self.state = AppState::Success(report);
-                                }
-                                Err(e) => {
-                                    self.state =
-                                        AppState::Error(format!("Diagnóstico falló: {}", e));
-                                }
-                            }
-                        }
-                        4 => {
-                            // Mostrar info de backups disponibles
-                            if let Some(ref last) = self.last_backup {
-                                self.state = AppState::Success(format!(
-                                    "Backup disponible: {}",
-                                    last.display()
-                                ));
-                            } else {
-                                self.state =
-                                    AppState::Error("No hay backups disponibles".to_string());
-                            }
-                        }
-                        5 => {
-                            // Ir a temas
-                            self.state = AppState::Main;
-                            self.active_view = ActiveView::Themes;
-                        }
-                        6 => {
-                            // Ir a fuentes
-                            self.state = AppState::Main;
-                            self.active_view = ActiveView::Fonts;
-                        }
-                        7 => {
-                            // Ir a plugins
-                            self.state = AppState::Main;
-                            self.active_view = ActiveView::Segments;
-                        }
-                        _ => {}
-                    }
-                }
-                KeyCode::Char('1') => {
-                    // Accion 1: Tema Aleatorio (Se requiere seleccion en Enter)
-                    self.welcome_selected_action = 0;
-                }
-                KeyCode::Char('2') | KeyCode::Char('f') => {
-                    // Accion 2: Instalar Nerd Font
-                    let font_name = "CascadiaCode".to_string();
-                    self.state = AppState::Installing(font_name.clone());
-                    self.install_font(font_name, tx.clone());
-                }
-                KeyCode::Char('3') | KeyCode::Char('i') => {
-                    // Accion 3: Terminal-Icons
-                    let plugin = self.plugins.iter().find(|p| p.name == "Terminal-Icons").cloned();
-                    if let Some(p) = plugin {
-                        if let Err(e) = self.toggle_plugin(&p) {
-                            self.state = AppState::Error(format!("Error: {}", e));
-                        } else {
-                            self.state = AppState::PluginSuccess(p.name);
-                        }
-                    }
-                }
-                KeyCode::Char('4') | KeyCode::Char('d') => {
-                    // Accion 4: Diagnostico
-                    match self.diagnostic.run_full_diagnostic(&self.detected_profiles) {
-                        Ok(result) => {
-                            let report = self.diagnostic.format_report(&result);
-                            self.state = AppState::Success(report);
-                        }
-                        Err(e) => {
-                            self.state = AppState::Error(format!("Error: {}", e));
-                        }
-                    }
-                }
-                KeyCode::Char('5') | KeyCode::Char('b') => {
-                    // Accion 5: Backups
-                    if let Some(ref last) = self.last_backup {
-                        self.state = AppState::Success(format!("Backup: {}", last.display()));
+                KeyCode::Char('b') => {
+                    if let Err(e) = self.create_manual_backup() {
+                        self.state = AppState::Error(format!("Manual backup failed: {}", e));
                     } else {
-                        self.state = AppState::Error("No backups found".to_string());
+                        self.state =
+                            AppState::Success("Manual backup created successfully".to_string());
                     }
+                    return Ok(false);
                 }
-                KeyCode::Char('6') | KeyCode::Char('t') => {
-                    self.state = AppState::Main;
-                    self.active_view = ActiveView::Themes;
-                }
-                KeyCode::Char('7') | KeyCode::Char('F') => {
-                    self.state = AppState::Main;
-                    self.active_view = ActiveView::Fonts;
-                }
-                KeyCode::Char('8') | KeyCode::Char('p') | KeyCode::Char('s') => {
-                    self.state = AppState::Main;
-                    self.active_view = ActiveView::Segments;
-                }
-                KeyCode::Char('q') | KeyCode::Esc => return Ok(true),
                 _ => {}
             }
-            return Ok(false);
         }
 
-        if self.state == AppState::Main {
-            match key.code {
-                KeyCode::Tab => {
-                    self.active_view = match self.active_view {
-                        ActiveView::Themes => ActiveView::Fonts,
-                        ActiveView::Fonts => ActiveView::Segments,
-                        ActiveView::Segments => ActiveView::Themes,
-                    };
+        // Back to Welcome / Help
+        if key.code == KeyCode::Esc
+            || (key.code == KeyCode::Char('h') && !matches!(self.state, AppState::Main))
+        {
+            if self.state != AppState::Welcome {
+                self.state = AppState::Welcome;
+                self.filter.clear();
+                self.fonts_filter.clear();
+                self.segments_filter.clear();
+                return Ok(false);
+            }
+        }
+
+        // --- 2. STATE-SPECIFIC LOGIC ---
+
+        match &self.state {
+            // Dismissal states
+            AppState::Success(_)
+            | AppState::Error(_)
+            | AppState::FontSuccess(_)
+            | AppState::PluginSuccess(_) => {
+                self.state = AppState::Main;
+                return Ok(false);
+            }
+
+            // Busy / Progress states
+            AppState::Installing(_)
+            | AppState::ApplyingProgress { .. }
+            | AppState::InstallingAllFonts { .. }
+            | AppState::InstallingDependency { .. } => {
+                if key.code == KeyCode::Char('q') {
+                    return Ok(true);
                 }
-                KeyCode::Char('1') => {
-                    self.active_view = ActiveView::Themes;
+                return Ok(false);
+            }
+
+            AppState::DependencyMissing => {
+                match key.code {
+                    KeyCode::Enter => self.install_omp(tx.clone()),
+                    KeyCode::Char('q') => return Ok(true),
+                    _ => {}
                 }
-                KeyCode::Char('2') => {
-                    self.active_view = ActiveView::Fonts;
+                return Ok(false);
+            }
+
+            AppState::ConfirmMassFontInstallation => {
+                match key.code {
+                    KeyCode::Char('y') | KeyCode::Char('Y') => self.install_all_fonts(tx.clone()),
+                    KeyCode::Char('n') | KeyCode::Char('N') | KeyCode::Esc => {
+                        self.state = AppState::Welcome
+                    }
+                    _ => {}
                 }
-                KeyCode::Char('3') => {
-                    self.active_view = ActiveView::Segments;
-                }
-                KeyCode::Down | KeyCode::Up => {
-                    if self.active_view == ActiveView::Themes {
-                        let filtered = self.filtered_themes();
-                        let i = match self.list_state.selected() {
-                            Some(i) => {
-                                if key.code == KeyCode::Down {
-                                    if i >= filtered.len().saturating_sub(1) {
-                                        0
-                                    } else {
-                                        i + 1
-                                    }
-                                } else {
-                                    if i == 0 {
-                                        filtered.len().saturating_sub(1)
-                                    } else {
-                                        i - 1
+                return Ok(false);
+            }
+
+            AppState::Welcome => {
+                match key.code {
+                    KeyCode::Up => {
+                        if self.welcome_selected_action > 0 {
+                            self.welcome_selected_action -= 1;
+                        }
+                    }
+                    KeyCode::Down => {
+                        if self.welcome_selected_action < 8 {
+                            self.welcome_selected_action += 1;
+                        }
+                    }
+                    KeyCode::Enter => {
+                        match self.welcome_selected_action {
+                            0 => {
+                                // Random Theme
+                                if !self.themes.is_empty() {
+                                    use std::time::{SystemTime, UNIX_EPOCH};
+                                    let idx = SystemTime::now()
+                                        .duration_since(UNIX_EPOCH)
+                                        .unwrap_or_default()
+                                        .as_secs()
+                                        as usize
+                                        % self.themes.len();
+                                    if let Some(t) = self.themes.get(idx).cloned() {
+                                        self.apply_theme_advanced(t, tx.clone());
                                     }
                                 }
                             }
-                            None => 0,
-                        };
-                        self.list_state.select(Some(i));
-                        self.theme_preview = String::new();
-                        if let Some(t) = filtered.get(i) {
+                            1 => self.state = AppState::ConfirmMassFontInstallation,
+                            2 => {
+                                // Terminal Icons
+                                if let Some(p) = self
+                                    .plugins
+                                    .iter()
+                                    .find(|p| p.name == "Terminal-Icons")
+                                    .cloned()
+                                {
+                                    if let Err(e) = self.toggle_plugin(&p) {
+                                        self.state = AppState::Error(e.to_string());
+                                    } else {
+                                        self.state = AppState::PluginSuccess(p.name);
+                                    }
+                                }
+                            }
+                            5 => {
+                                self.state = AppState::Main;
+                                self.active_view = ActiveView::Themes;
+                                if let Some(t) = self.filtered_themes().first() {
+                                    self.load_theme_preview(t.clone(), tx.clone());
+                                }
+                            }
+                            6 => {
+                                self.state = AppState::Main;
+                                self.active_view = ActiveView::Fonts;
+                            }
+                            7 => {
+                                self.state = AppState::Main;
+                                self.active_view = ActiveView::Segments;
+                            }
+                            8 => {
+                                // Manual Backup
+                                if let Err(e) = self.create_manual_backup() {
+                                    self.state = AppState::Error(format!("Backup failed: {}", e));
+                                } else {
+                                    self.state = AppState::Success(
+                                        "Manual backup created successfully".to_string(),
+                                    );
+                                }
+                            }
+                            _ => {}
+                        }
+                    }
+                    // --- Standardized Global View Shortcuts ---
+                    KeyCode::Char('1') => { 
+                        self.state = AppState::Main; 
+                        self.active_view = ActiveView::Themes; 
+                        if let Some(t) = self.filtered_themes().first() {
                             self.load_theme_preview(t.clone(), tx.clone());
                         }
-                    } else if self.active_view == ActiveView::Fonts {
-                        let filtered = self.filtered_fonts();
-                        let i = match self.fonts_list_state.selected() {
-                            Some(i) => {
-                                if key.code == KeyCode::Down {
-                                    if i >= filtered.len().saturating_sub(1) {
-                                        0
-                                    } else {
-                                        i + 1
-                                    }
-                                } else {
-                                    if i == 0 {
-                                        filtered.len().saturating_sub(1)
-                                    } else {
-                                        i - 1
-                                    }
-                                }
-                            }
-                            None => 0,
-                        };
-                        self.fonts_list_state.select(Some(i));
-                    } else if self.active_view == ActiveView::Segments {
-                        let filtered = self.filtered_segments();
-                        let i = match self.plugins_list_state.selected() {
-                            Some(i) => {
-                                if key.code == KeyCode::Down {
-                                    if i >= filtered.len().saturating_sub(1) {
-                                        0
-                                    } else {
-                                        i + 1
-                                    }
-                                } else {
-                                    if i == 0 {
-                                        filtered.len().saturating_sub(1)
-                                    } else {
-                                        i - 1
-                                    }
-                                }
-                            }
-                            None => 0,
-                        };
-                        self.plugins_list_state.select(Some(i));
-                    }
+                    },
+                    KeyCode::Char('2') => { self.state = AppState::Main; self.active_view = ActiveView::Fonts; },
+                    KeyCode::Char('3') => { self.state = AppState::Main; self.active_view = ActiveView::Segments; },
+                    
+                    // --- Mnemonic Quick Action Shortcuts ---
+                    KeyCode::Char('r') | KeyCode::Char('R') => { 
+                        self.welcome_selected_action = 0; 
+                        let _ = self.handle_input(crossterm::event::KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE), tx); 
+                    },
+                    KeyCode::Char('n') | KeyCode::Char('N') => self.state = AppState::ConfirmMassFontInstallation,
+                    KeyCode::Char('i') | KeyCode::Char('I') => {
+                        self.welcome_selected_action = 2;
+                        let _ = self.handle_input(crossterm::event::KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE), tx);
+                    },
+                    KeyCode::Char('d') | KeyCode::Char('D') => self.state = AppState::Success("Diagnostics coming soon!".to_string()),
+                    KeyCode::Char('v') | KeyCode::Char('V') => {
+                        self.welcome_selected_action = 4;
+                        let _ = self.handle_input(crossterm::event::KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE), tx);
+                    },
+                    KeyCode::Char('b') | KeyCode::Char('B') if !key.modifiers.contains(KeyModifiers::CONTROL) => {
+                        self.welcome_selected_action = 8;
+                        let _ = self.handle_input(crossterm::event::KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE), tx);
+                    },
+                    
+                    KeyCode::Char('q') => return Ok(true),
+                    _ => {}
                 }
-                KeyCode::Char('q') | KeyCode::Esc => return Ok(true),
-                KeyCode::Char(c) => {
-                    if self.active_view == ActiveView::Themes {
-                        self.filter.push(c);
-                        self.list_state.select(Some(0));
-                    } else if self.active_view == ActiveView::Fonts {
-                        self.fonts_filter.push(c);
-                        self.fonts_list_state.select(Some(0));
-                    } else if self.active_view == ActiveView::Segments {
-                        self.segments_filter.push(c);
-                        self.plugins_list_state.select(Some(0));
-                    }
-                }
-                KeyCode::Backspace => {
-                    if self.active_view == ActiveView::Themes {
-                        self.filter.pop();
-                    } else if self.active_view == ActiveView::Fonts {
-                        self.fonts_filter.pop();
-                    } else if self.active_view == ActiveView::Segments {
-                        self.segments_filter.pop();
-                    }
-                }
-                KeyCode::Enter => {
-                    if self.active_view == ActiveView::Themes {
-                        let filtered = self.filtered_themes();
-                        if let Some(selected) = self.list_state.selected() {
-                            if let Some(theme) = filtered.get(selected) {
-                                if theme.is_local {
-                                    self.apply_theme(&theme.name)?;
-                                    self.state = AppState::Success(format!("Tema '{}' aplicado!", theme.name));
-                                } else if let Some(url) = &theme.download_url {
-                                    // Trigger download
-                                    self.state = AppState::Installing(format!("Descargando {}...", theme.name));
-                                    self.download_theme(RemoteTheme {
-                                        name: theme.name.clone(),
-                                        download_url: url.clone(),
-                                        sha: String::new(), // Not critical for simple download
-                                    }, tx.clone());
-                                }
-                            }
-                        }
-                    } else if self.active_view == ActiveView::Fonts {
-                        let filtered = self.filtered_fonts();
-                        if let Some(selected) = self.fonts_list_state.selected() {
-                            if let Some(font) = filtered.get(selected) {
-                                self.state = AppState::Installing(font.name.clone());
-                                self.install_font(font.name.clone(), tx.clone());
-                            }
-                        }
-                    } else if self.active_view == ActiveView::Segments {
-                        let filtered = self.filtered_segments();
-                        if let Some(selected) = self.plugins_list_state.selected() {
-                            if let Some(segment) = filtered.get(selected) {
-                                if let Err(e) = self.toggle_segment(segment) {
-                                    self.state =
-                                        AppState::Error(format!("Failed to toggle segment: {}", e));
-                                } else {
-                                    self.state = AppState::PluginSuccess(segment.name.clone());
-                                }
-                            }
-                        }
-                    }
-                }
-                _ => {}
+                return Ok(false);
             }
+
+            AppState::Main => {
+                // --- 3. VIEW-SPECIFIC NAVIGATION (In Main) ---
+                match key.code {
+                    KeyCode::Tab => {
+                        self.active_view = match self.active_view {
+                            ActiveView::Themes => ActiveView::Fonts,
+                            ActiveView::Fonts => ActiveView::Segments,
+                            ActiveView::Segments => ActiveView::Themes,
+                        };
+                        return Ok(false);
+                    }
+                    KeyCode::Char('1') => {
+                        self.active_view = ActiveView::Themes;
+                        return Ok(false);
+                    }
+                    KeyCode::Char('2') => {
+                        self.active_view = ActiveView::Fonts;
+                        return Ok(false);
+                    }
+                    KeyCode::Char('3') => {
+                        self.active_view = ActiveView::Segments;
+                        return Ok(false);
+                    }
+
+                    KeyCode::Up | KeyCode::Down => {
+                        self.navigate_list(key.code == KeyCode::Down, tx.clone());
+                        return Ok(false);
+                    }
+
+                    KeyCode::Enter => {
+                        self.execute_active_view_action(tx.clone());
+                        return Ok(false);
+                    }
+
+                    KeyCode::Backspace => {
+                        match self.active_view {
+                            ActiveView::Themes => {
+                                self.filter.pop();
+                                self.list_state.select(Some(0));
+                            }
+                            ActiveView::Fonts => {
+                                self.fonts_filter.pop();
+                                self.fonts_list_state.select(Some(0));
+                            }
+                            ActiveView::Segments => {
+                                self.segments_filter.pop();
+                                self.plugins_list_state.select(Some(0));
+                            }
+                        }
+                        return Ok(false);
+                    }
+
+                    KeyCode::Char('q') if key.modifiers.is_empty() => return Ok(true),
+
+                    KeyCode::Char(c) => {
+                        match self.active_view {
+                            ActiveView::Themes => {
+                                self.filter.push(c);
+                                self.list_state.select(Some(0));
+                            }
+                            ActiveView::Fonts => {
+                                self.fonts_filter.push(c);
+                                self.fonts_list_state.select(Some(0));
+                            }
+                            ActiveView::Segments => {
+                                self.segments_filter.push(c);
+                                self.plugins_list_state.select(Some(0));
+                            }
+                        }
+                        return Ok(false);
+                    }
+                    _ => {}
+                }
+            }
+            _ => {}
         }
+
         Ok(false)
     }
 
-    /// Restaura el último backup creado para todos los perfiles detectados
-    /// Retorna el número de perfiles restaurados exitosamente
+    /// Helper to handle list navigation across different views
+    fn navigate_list(&mut self, forward: bool, tx: mpsc::Sender<AppMessage>) {
+        match self.active_view {
+            ActiveView::Themes => {
+                let filtered = self.filtered_themes();
+                if filtered.is_empty() {
+                    return;
+                }
+                let i = match self.list_state.selected() {
+                    Some(i) => {
+                        if forward {
+                            if i >= filtered.len() - 1 {
+                                0
+                            } else {
+                                i + 1
+                            }
+                        } else {
+                            if i == 0 {
+                                filtered.len() - 1
+                            } else {
+                                i - 1
+                            }
+                        }
+                    }
+                    None => 0,
+                };
+                self.list_state.select(Some(i));
+                if let Some(t) = filtered.get(i) {
+                    self.theme_preview = " Loading preview...".to_string();
+                    self.load_theme_preview(t.clone(), tx);
+                }
+            }
+            ActiveView::Fonts => {
+                let filtered = self.filtered_fonts();
+                if filtered.is_empty() {
+                    return;
+                }
+                let i = match self.fonts_list_state.selected() {
+                    Some(i) => {
+                        if forward {
+                            if i >= filtered.len() - 1 {
+                                0
+                            } else {
+                                i + 1
+                            }
+                        } else {
+                            if i == 0 {
+                                filtered.len() - 1
+                            } else {
+                                i - 1
+                            }
+                        }
+                    }
+                    None => 0,
+                };
+                self.fonts_list_state.select(Some(i));
+            }
+            ActiveView::Segments => {
+                let filtered = self.filtered_segments();
+                if filtered.is_empty() {
+                    return;
+                }
+                let i = match self.plugins_list_state.selected() {
+                    Some(i) => {
+                        if forward {
+                            if i >= filtered.len() - 1 {
+                                0
+                            } else {
+                                i + 1
+                            }
+                        } else {
+                            if i == 0 {
+                                filtered.len() - 1
+                            } else {
+                                i - 1
+                            }
+                        }
+                    }
+                    None => 0,
+                };
+                self.plugins_list_state.select(Some(i));
+            }
+        }
+    }
+
+    /// Helper to execute the primary action of the current view
+    fn execute_active_view_action(&mut self, tx: mpsc::Sender<AppMessage>) {
+        match self.active_view {
+            ActiveView::Themes => {
+                let filtered = self.filtered_themes();
+                if let Some(selected) = self.list_state.selected() {
+                    if let Some(theme) = filtered.get(selected) {
+                        if !theme.is_local && !crate::api::check_internet_connectivity() {
+                            self.state =
+                                AppState::Error("No internet connection detected.".to_string());
+                        } else {
+                            self.apply_theme_advanced(theme.clone(), tx);
+                        }
+                    }
+                }
+            }
+            ActiveView::Fonts => {
+                let filtered = self.filtered_fonts();
+                if let Some(selected) = self.fonts_list_state.selected() {
+                    if let Some(font) = filtered.get(selected) {
+                        self.state = AppState::Installing(font.name.clone());
+                        self.install_font(font.name.clone(), tx);
+                    }
+                }
+            }
+            ActiveView::Segments => {
+                let filtered = self.filtered_segments();
+                if let Some(selected) = self.plugins_list_state.selected() {
+                    if let Some(segment) = filtered.get(selected) {
+                        if let Err(e) = self.toggle_segment(segment) {
+                            self.state =
+                                AppState::Error(format!("Failed to toggle segment: {}", e));
+                        } else {
+                            self.state = AppState::PluginSuccess(segment.name.clone());
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    /// Restores the last backup created for all detected profiles
+    /// Returns the number of successfully restored profiles
     pub fn restore_last_backup(&mut self) -> Result<usize, crate::backup::BackupError> {
         let mut restored_count = 0;
 
@@ -1444,7 +1903,7 @@ impl App {
         Ok(restored_count)
     }
 
-    /// Obtiene información de los backups disponibles para un perfil específico
+    /// Gets information about available backups for a specific profile
     pub fn get_backup_info(
         &self,
         profile_path: &std::path::Path,
@@ -1454,13 +1913,42 @@ impl App {
             .unwrap_or_default()
     }
 
-    /// Actualiza el contador total de backups detectados en todos los perfiles
+    /// Refreshes the total count of backups detected across all profiles
     pub fn refresh_backup_count(&mut self) {
         let mut count = 0;
         for profile in &self.detected_profiles {
             count += self.get_backup_info(profile).len();
         }
         self.total_backups = count;
+    }
+
+    /// Creates a manual backup of all detected PowerShell profiles
+    pub fn create_manual_backup(&mut self) -> Result<(), String> {
+        if self.detected_profiles.is_empty() {
+            return Err("No PowerShell profiles detected".to_string());
+        }
+
+        let mut errors = Vec::new();
+        for profile in &self.detected_profiles {
+            // Manual backup for existing profiles
+            if profile.exists() {
+                if let Err(e) = self
+                    .backup_manager
+                    .backup_profile(profile, "Manual backup from PoshBuddy")
+                {
+                    errors.push(format!("{}: {}", profile.display(), e));
+                }
+            }
+        }
+
+        // Refresh count after backup
+        self.refresh_backup_count();
+
+        if errors.is_empty() {
+            Ok(())
+        } else {
+            Err(format!("Some backups failed: {}", errors.join("; ")))
+        }
     }
 }
 
@@ -1539,6 +2027,9 @@ mod tests {
             welcome_selected_action: 0,
             system_specs: None,
             total_backups: 0,
+            preview_request_id: 0,
+            active_preview_task: None,
+            active_segments: HashSet::new(),
         }
     }
 
@@ -1546,9 +2037,21 @@ mod tests {
     fn test_filtered_themes() {
         let mut app = mock_app();
         app.themes = vec![
-            ThemeAsset { name: "bubbles.omp.json".to_string(), is_local: true, download_url: None },
-            ThemeAsset { name: "joker.omp.json".to_string(), is_local: true, download_url: None },
-            ThemeAsset { name: "M365.omp.json".to_string(), is_local: true, download_url: None },
+            ThemeAsset {
+                name: "bubbles.omp.json".to_string(),
+                is_local: true,
+                download_url: None,
+            },
+            ThemeAsset {
+                name: "joker.omp.json".to_string(),
+                is_local: true,
+                download_url: None,
+            },
+            ThemeAsset {
+                name: "M365.omp.json".to_string(),
+                is_local: true,
+                download_url: None,
+            },
         ];
 
         // Empty filter should return all
@@ -1813,7 +2316,8 @@ mod tests {
                 let where_path = dir.join("where");
                 std::fs::write(&where_path, format!("#!/bin/sh\nif [ \"$1\" = \"pwsh\" ]; then echo '{}'; exit 0; else exit 1; fi", pwsh_path.display())).unwrap();
                 use std::os::unix::fs::PermissionsExt;
-                std::fs::set_permissions(&where_path, std::fs::Permissions::from_mode(0o755)).unwrap();
+                std::fs::set_permissions(&where_path, std::fs::Permissions::from_mode(0o755))
+                    .unwrap();
             }
 
             // Use ONLY mock directory in PATH if we are mocking `where` as well
@@ -1849,12 +2353,36 @@ mod filtering_tests {
             state: AppState::Main,
             active_view: ActiveView::Themes,
             themes: vec![
-                ThemeAsset { name: "agnoster".to_string(), is_local: true, download_url: None },
-                ThemeAsset { name: "amro".to_string(), is_local: true, download_url: None },
-                ThemeAsset { name: "atomic".to_string(), is_local: true, download_url: None },
-                ThemeAsset { name: "catppuccin_frappe".to_string(), is_local: true, download_url: None },
-                ThemeAsset { name: "Catppuccin_Macchiato".to_string(), is_local: true, download_url: None },
-                ThemeAsset { name: "cyberpunk".to_string(), is_local: true, download_url: None },
+                ThemeAsset {
+                    name: "agnoster".to_string(),
+                    is_local: true,
+                    download_url: None,
+                },
+                ThemeAsset {
+                    name: "amro".to_string(),
+                    is_local: true,
+                    download_url: None,
+                },
+                ThemeAsset {
+                    name: "atomic".to_string(),
+                    is_local: true,
+                    download_url: None,
+                },
+                ThemeAsset {
+                    name: "catppuccin_frappe".to_string(),
+                    is_local: true,
+                    download_url: None,
+                },
+                ThemeAsset {
+                    name: "Catppuccin_Macchiato".to_string(),
+                    is_local: true,
+                    download_url: None,
+                },
+                ThemeAsset {
+                    name: "cyberpunk".to_string(),
+                    is_local: true,
+                    download_url: None,
+                },
             ],
             remote_themes: vec![],
             fonts: vec![],
@@ -1881,6 +2409,9 @@ mod filtering_tests {
             welcome_selected_action: 0,
             system_specs: None,
             total_backups: 0,
+            preview_request_id: 0,
+            active_preview_task: None,
+            active_segments: HashSet::new(),
         }
     }
 
