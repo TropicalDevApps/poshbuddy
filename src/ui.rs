@@ -368,9 +368,9 @@ fn render_fonts(f: &mut Frame, area: Rect, app: &mut App) {
 
     if items.is_empty() {
         let msg = if app.fonts_filter.is_empty() {
-            "   No fonts available.".to_string()
+            "  No fonts available.".to_string()
         } else {
-            format!("   No fonts matching '{}'", app.fonts_filter)
+            format!("  No fonts matching '{}'", app.fonts_filter)
         };
         items.push(ListItem::new(msg).style(Style::default().fg(C_DIM).add_modifier(Modifier::ITALIC)));
     }
