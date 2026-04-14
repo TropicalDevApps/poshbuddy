@@ -542,12 +542,12 @@ impl App {
 
             if is_active {
                 // Remove the plugin
-                new_lines.retain(|l| !l.contains(&payload.split('\n').next().unwrap_or(&payload)));
+                new_lines.retain(|l| !l.contains(payload.split('\n').next().unwrap_or(&payload)));
             } else {
                 // Add the plugin
                 if !new_lines
                     .iter()
-                    .any(|l| l.contains(&payload.split('\n').next().unwrap_or(&payload)))
+                    .any(|l| l.contains(payload.split('\n').next().unwrap_or(&payload)))
                 {
                     new_lines.push(payload.clone());
                 }
@@ -800,7 +800,7 @@ mod tests {
 }
 
 #[cfg(test)]
-mod tests {
+mod more_tests {
     use super::*;
     use ratatui::widgets::ListState;
 
@@ -821,6 +821,9 @@ mod tests {
             fonts_filter: "".to_string(),
             themes_dir: PathBuf::from("/mock/themes/dir"),
             version: "1.0.0".to_string(),
+            plugins: vec![],
+            plugins_filter: "".to_string(),
+            plugins_list_state: ListState::default(),
             list_state: ListState::default(),
             fonts_list_state: ListState::default(),
             spinner_tick: 0,
