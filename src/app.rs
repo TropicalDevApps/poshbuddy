@@ -9,6 +9,18 @@ use tokio::sync::mpsc;
 const OMP_BINARY: &str = "oh-my-posh";
 const WHERE_CMD: &str = "where";
 
+/// Helper function for zero-allocation case-insensitive ASCII substring matching
+pub fn contains_ignore_ascii_case(haystack: &str, needle: &str) -> bool {
+    let needle_bytes = needle.as_bytes();
+    if needle_bytes.is_empty() {
+        return true;
+    }
+    haystack
+        .as_bytes()
+        .windows(needle_bytes.len())
+        .any(|w| w.eq_ignore_ascii_case(needle_bytes))
+}
+
 /// Metadata for a PowerShell module/extension (Legacy Plugins)
 #[derive(Clone, Debug)]
 pub struct PluginAsset {
@@ -537,15 +549,15 @@ impl App {
             .output();
 
         if let Ok(out) = output {
-            let name = String::from_utf8_lossy(&out.stdout).to_lowercase();
+            let name = String::from_utf8_lossy(&out.stdout);
             if name.trim().is_empty() {
                 return true;
             }
-            name.contains("nf")
-                || name.contains("nerd")
-                || name.contains("retina")
-                || name.contains("code")
-                || name.contains("meslo")
+            contains_ignore_ascii_case(&name, "nf")
+                || contains_ignore_ascii_case(&name, "nerd")
+                || contains_ignore_ascii_case(&name, "retina")
+                || contains_ignore_ascii_case(&name, "code")
+                || contains_ignore_ascii_case(&name, "meslo")
         } else {
             true
         }
@@ -553,26 +565,26 @@ impl App {
 
     /// Returns a unified list of filtered themes (Local + Unique Remote)
     pub fn filtered_themes(&self) -> Vec<ThemeAsset> {
+        let filter = &self.filter;
         let mut unified = Vec::new();
 
         // Add Local
         for t in &self.themes {
-            if contains_ignore_ascii_case(&t.name, &self.filter) {
+            if contains_ignore_ascii_case(&t.name, filter) {
                 unified.push(t.clone());
             }
         }
 
         // Add Remote (only if not local)
         for rt in &self.remote_themes {
-            if contains_ignore_ascii_case(&rt.name, &self.filter)
-                && !self.themes.iter().any(|t| t.name == rt.name)
-            {
-                unified.push(ThemeAsset {
-                    name: rt.name.clone(),
-                    is_local: false,
-                    download_url: Some(rt.download_url.clone()),
-                });
-            }
+            if contains_ignore_ascii_case(&rt.name, filter)
+                && !self.themes.iter().any(|t| t.name == rt.name) {
+                    unified.push(ThemeAsset {
+                        name: rt.name.clone(),
+                        is_local: false,
+                        download_url: Some(rt.download_url.clone()),
+                    });
+                }
         }
 
         unified
@@ -608,7 +620,16 @@ impl App {
             .collect()
     }
 
-    /// Checks if a segment is active in the currently loaded Oh My Posh config (using cache)
+    /// Returns a filtered list of legacy plugins based on search criteria
+    pub fn filtered_plugins(&self) -> Vec<PluginAsset> {
+        self.plugins
+            .iter()
+            .filter(|p| contains_ignore_ascii_case(&p.name, &self.plugins_filter))
+            .cloned()
+            .collect()
+    }
+
+    /// Checks if a segment is active in the currently loaded Oh My Posh config
     pub fn is_segment_active(&self, segment: &SegmentAsset) -> bool {
         self.active_segments.contains(&segment.segment_type)
     }
