@@ -268,30 +268,69 @@ impl App {
 
     /// Returns a filtered list of themes based on search criteria
     pub fn filtered_themes(&self) -> Vec<String> {
-        let filter_lower = self.filter.to_lowercase();
+        let filter_bytes = self.filter.as_bytes();
+        let filter_len = filter_bytes.len();
+
         self.themes
             .iter()
-            .filter(|t| t.to_lowercase().contains(&filter_lower))
+            .filter(|t| {
+                if filter_len == 0 {
+                    return true;
+                }
+                let t_bytes = t.as_bytes();
+                if t_bytes.len() < filter_len {
+                    return false;
+                }
+                t_bytes
+                    .windows(filter_len)
+                    .any(|w| w.eq_ignore_ascii_case(filter_bytes))
+            })
             .cloned()
             .collect()
     }
 
     /// Returns a filtered list of fonts based on search criteria
     pub fn filtered_fonts(&self) -> Vec<FontAsset> {
-        let filter_lower = self.fonts_filter.to_lowercase();
+        let filter_bytes = self.fonts_filter.as_bytes();
+        let filter_len = filter_bytes.len();
+
         self.fonts
             .iter()
-            .filter(|f| f.name.to_lowercase().contains(&filter_lower))
+            .filter(|f| {
+                if filter_len == 0 {
+                    return true;
+                }
+                let f_bytes = f.name.as_bytes();
+                if f_bytes.len() < filter_len {
+                    return false;
+                }
+                f_bytes
+                    .windows(filter_len)
+                    .any(|w| w.eq_ignore_ascii_case(filter_bytes))
+            })
             .cloned()
             .collect()
     }
 
     /// Returns a filtered list of plugins based on search criteria
     pub fn filtered_plugins(&self) -> Vec<PluginAsset> {
-        let filter_lower = self.plugins_filter.to_lowercase();
+        let filter_bytes = self.plugins_filter.as_bytes();
+        let filter_len = filter_bytes.len();
+
         self.plugins
             .iter()
-            .filter(|p| p.name.to_lowercase().contains(&filter_lower))
+            .filter(|p| {
+                if filter_len == 0 {
+                    return true;
+                }
+                let p_bytes = p.name.as_bytes();
+                if p_bytes.len() < filter_len {
+                    return false;
+                }
+                p_bytes
+                    .windows(filter_len)
+                    .any(|w| w.eq_ignore_ascii_case(filter_bytes))
+            })
             .cloned()
             .collect()
     }
@@ -800,7 +839,7 @@ mod tests {
 }
 
 #[cfg(test)]
-mod tests {
+mod filtering_tests {
     use super::*;
     use ratatui::widgets::ListState;
 
@@ -817,12 +856,15 @@ mod tests {
                 "cyberpunk".to_string(),
             ],
             fonts: vec![],
+            plugins: vec![],
             filter: "".to_string(),
             fonts_filter: "".to_string(),
+            plugins_filter: "".to_string(),
             themes_dir: PathBuf::from("/mock/themes/dir"),
             version: "1.0.0".to_string(),
             list_state: ListState::default(),
             fonts_list_state: ListState::default(),
+            plugins_list_state: ListState::default(),
             spinner_tick: 0,
             has_nerd_font: true,
             theme_preview: "".to_string(),
