@@ -9,6 +9,18 @@ use tokio::sync::mpsc;
 const OMP_BINARY: &str = "oh-my-posh";
 const WHERE_CMD: &str = "where";
 
+/// Helper function for zero-allocation case-insensitive ASCII substring matching
+pub fn contains_ignore_ascii_case(haystack: &str, needle: &str) -> bool {
+    let needle_bytes = needle.as_bytes();
+    if needle_bytes.is_empty() {
+        return true;
+    }
+    haystack
+        .as_bytes()
+        .windows(needle_bytes.len())
+        .any(|w| w.eq_ignore_ascii_case(needle_bytes))
+}
+
 /// Metadata for a PowerShell module/extension (Legacy Plugins)
 #[derive(Clone, Debug)]
 pub struct PluginAsset {
@@ -207,7 +219,7 @@ impl App {
         if let Ok(entries) = fs::read_dir(&themes_dir) {
             for entry in entries.flatten() {
                 let path = entry.path();
-                if path.is_file() && path.extension().map_or(false, |ext| ext == "json") {
+                if path.is_file() && path.extension().is_some_and(|ext| ext == "json") {
                     let name = path
                         .file_name()
                         .and_then(|n| n.to_str())
@@ -522,15 +534,15 @@ impl App {
             .output();
 
         if let Ok(out) = output {
-            let name = String::from_utf8_lossy(&out.stdout).to_lowercase();
+            let name = String::from_utf8_lossy(&out.stdout);
             if name.trim().is_empty() {
                 return true;
             }
-            name.contains("nf")
-                || name.contains("nerd")
-                || name.contains("retina")
-                || name.contains("code")
-                || name.contains("meslo")
+            contains_ignore_ascii_case(&name, "nf")
+                || contains_ignore_ascii_case(&name, "nerd")
+                || contains_ignore_ascii_case(&name, "retina")
+                || contains_ignore_ascii_case(&name, "code")
+                || contains_ignore_ascii_case(&name, "meslo")
         } else {
             true
         }
@@ -538,27 +550,26 @@ impl App {
 
     /// Returns a unified list of filtered themes (Local + Unique Remote)
     pub fn filtered_themes(&self) -> Vec<ThemeAsset> {
-        let filter_lower = self.filter.to_lowercase();
+        let filter = &self.filter;
         let mut unified = Vec::new();
 
         // Add Local
         for t in &self.themes {
-            if t.name.to_lowercase().contains(&filter_lower) {
+            if contains_ignore_ascii_case(&t.name, filter) {
                 unified.push(t.clone());
             }
         }
 
         // Add Remote (only if not local)
         for rt in &self.remote_themes {
-            if rt.name.to_lowercase().contains(&filter_lower)
-                && !self.themes.iter().any(|t| t.name == rt.name)
-            {
-                unified.push(ThemeAsset {
-                    name: rt.name.clone(),
-                    is_local: false,
-                    download_url: Some(rt.download_url.clone()),
-                });
-            }
+            if contains_ignore_ascii_case(&rt.name, filter)
+                && !self.themes.iter().any(|t| t.name == rt.name) {
+                    unified.push(ThemeAsset {
+                        name: rt.name.clone(),
+                        is_local: false,
+                        download_url: Some(rt.download_url.clone()),
+                    });
+                }
         }
 
         unified
@@ -574,29 +585,36 @@ impl App {
 
     /// Returns a filtered list of fonts based on search criteria
     pub fn filtered_fonts(&self) -> Vec<FontAsset> {
-        let filter_lower = self.fonts_filter.to_lowercase();
         self.fonts
             .iter()
-            .filter(|f| f.name.to_lowercase().contains(&filter_lower))
+            .filter(|f| contains_ignore_ascii_case(&f.name, &self.fonts_filter))
             .cloned()
             .collect()
     }
 
     /// Returns a filtered list of segments based on search criteria
     pub fn filtered_segments(&self) -> Vec<SegmentAsset> {
-        let filter_lower = self.segments_filter.to_lowercase();
         self.segments
             .iter()
             .filter(|p| {
-                p.name.to_lowercase().contains(&filter_lower)
-                    || p.description.to_lowercase().contains(&filter_lower)
-                    || p.category.to_lowercase().contains(&filter_lower)
+                contains_ignore_ascii_case(&p.name, &self.segments_filter)
+                    || contains_ignore_ascii_case(&p.description, &self.segments_filter)
+                    || contains_ignore_ascii_case(&p.category, &self.segments_filter)
             })
             .cloned()
             .collect()
     }
 
-    /// Checks if a segment is active in the currently loaded Oh My Posh config (using cache)
+    /// Returns a filtered list of legacy plugins based on search criteria
+    pub fn filtered_plugins(&self) -> Vec<PluginAsset> {
+        self.plugins
+            .iter()
+            .filter(|p| contains_ignore_ascii_case(&p.name, &self.plugins_filter))
+            .cloned()
+            .collect()
+    }
+
+    /// Checks if a segment is active in the currently loaded Oh My Posh config
     pub fn is_segment_active(&self, segment: &SegmentAsset) -> bool {
         self.active_segments.contains(&segment.segment_type)
     }
@@ -732,10 +750,10 @@ impl App {
 
             match output {
                 Ok(_) => {
-                    let _ = tx.send(AppMessage::FontInstalled(font_name_cloned)).await;
+                    if tx.send(AppMessage::FontInstalled(font_name_cloned)).await.is_err() {}
                 }
                 Err(e) => {
-                    let _ = tx.send(AppMessage::Error(e.to_string())).await;
+                    if tx.send(AppMessage::Error(e.to_string())).await.is_err() {}
                 }
             }
         });
@@ -759,13 +777,12 @@ impl App {
                 let current_name = font.name.clone();
 
                 // Update progress before starting
-                let _ = tx
+                if tx
                     .send(AppMessage::MassFontProgress {
                         index: idx + 1,
                         total,
                         name: current_name.clone(),
-                    })
-                    .await;
+                    }).await.is_err() { return; }
 
                 // Run installation for this specific font
                 let output = tokio::process::Command::new(cmd)
@@ -774,21 +791,19 @@ impl App {
                     .await;
 
                 if let Err(e) = output {
-                    let _ = tx
+                    if tx
                         .send(AppMessage::Error(format!(
                             "Failed to install {}: {}",
                             current_name, e
-                        )))
-                        .await;
+                        ))).await.is_err() { return; }
                     return;
                 }
             }
 
-            let _ = tx
+            if tx
                 .send(AppMessage::Success(
                     "All Nerd Fonts have been installed successfully!".to_string(),
-                ))
-                .await;
+                )).await.is_err() {}
         });
     }
 
@@ -813,13 +828,12 @@ impl App {
                     match crate::api::download_to_temp(&theme_cloned.name, url).await {
                         Ok(p) => p,
                         Err(e) => {
-                            let _ = tx
+                            if tx
                                 .send(AppMessage::ThemePreviewLoaded {
                                     theme: theme_cloned,
                                     preview: format!(" Error downloading preview: {}", e),
                                     request_id: current_id,
-                                })
-                                .await;
+                                }).await.is_err() { return; }
                             return;
                         }
                     }
@@ -836,13 +850,12 @@ impl App {
                 Ok(p) => p,
                 Err(_) => {
                     if !final_theme_path.exists() {
-                        let _ = tx
+                        if tx
                             .send(AppMessage::ThemePreviewLoaded {
                                 theme: theme_cloned,
                                 preview: " Error: Theme file not found locally ".to_string(),
                                 request_id: current_id,
-                            })
-                            .await;
+                            }).await.is_err() { return; }
                         return;
                     }
                     final_theme_path
@@ -850,7 +863,7 @@ impl App {
             };
 
             let mut cmd_obj = tokio::process::Command::new(cmd);
-            
+
             // Get current working directory for a more realistic preview
             let current_dir = std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."));
 
@@ -889,31 +902,28 @@ impl App {
                         format!(" {}", raw.trim_end())
                     };
 
-                    let _ = tx
+                    if tx
                         .send(AppMessage::ThemePreviewLoaded {
                             theme: theme_cloned,
                             preview,
                             request_id: current_id,
-                        })
-                        .await;
+                        }).await.is_err() {}
                 }
                 Ok(Err(e)) => {
-                    let _ = tx
+                    if tx
                         .send(AppMessage::ThemePreviewLoaded {
                             theme: theme_cloned,
                             preview: format!(" Command error: {}", e),
                             request_id: current_id,
-                        })
-                        .await;
+                        }).await.is_err() {}
                 }
                 Err(_) => {
-                    let _ = tx
+                    if tx
                         .send(AppMessage::ThemePreviewLoaded {
                             theme: theme_cloned,
                             preview: " Timeout: Theme too complex for quick preview ".to_string(),
                             request_id: current_id,
-                        })
-                        .await;
+                        }).await.is_err() {}
                 }
             }
         });
@@ -924,11 +934,10 @@ impl App {
     /// Handles automatic installation of Oh My Posh via WinGet (Windows) or Homebrew (Linux/macOS)
     pub fn install_omp(&self, tx: mpsc::Sender<AppMessage>) {
         tokio::spawn(async move {
-            let _ = tx
+            if tx
                 .send(AppMessage::InstallProgress {
                     line: "Starting Oh My Posh installation...".to_string(),
-                })
-                .await;
+                }).await.is_err() { return; }
 
             let child = if cfg!(windows) {
                 tokio::process::Command::new("winget")
@@ -953,23 +962,21 @@ impl App {
             match child {
                 Ok(mut child) => match child.wait().await {
                     Ok(status) if status.success() => {
-                        let _ = tx.send(AppMessage::InstallFinished).await;
+                        if tx.send(AppMessage::InstallFinished).await.is_err() {}
                     }
                     _ => {
-                        let _ = tx
+                        if tx
                             .send(AppMessage::Error(
                                 "Installation failed via Winget".to_string(),
-                            ))
-                            .await;
+                            )).await.is_err() {}
                     }
                 },
                 Err(e) => {
-                    let _ = tx
+                    if tx
                         .send(AppMessage::Error(format!(
                             "Could not start installer: {}",
                             e
-                        )))
-                        .await;
+                        ))).await.is_err() {}
                 }
             }
         });
@@ -1068,23 +1075,21 @@ impl App {
 
         tokio::spawn(async move {
             // Stage 0: Download/Locate
-            let _ = tx_cloned
+            if tx_cloned
                 .send(AppMessage::InstallUpdate {
                     stage: 0,
                     percentage: 25.0,
-                })
-                .await;
+                }).await.is_err() { return; }
 
             let source_path = if theme.is_local {
                 let name_clean = theme.name.replace(".omp.json", "");
                 themes_dir.join(format!("{}.omp.json", name_clean))
             } else {
                 if !crate::api::check_internet_connectivity() {
-                    let _ = tx_cloned
+                    if tx_cloned
                         .send(AppMessage::Error(
                             "No internet connection detected. Check your network.".to_string(),
-                        ))
-                        .await;
+                        )).await.is_err() { return; }
                     return;
                 }
 
@@ -1094,81 +1099,72 @@ impl App {
                     match crate::api::download_theme_file(&theme.name, &url, &temp_dir).await {
                         Ok(p) => p,
                         Err(e) => {
-                            let _ = tx_cloned
-                                .send(AppMessage::Error(format!("Download failed: {}", e)))
-                                .await;
+                            if tx_cloned
+                                .send(AppMessage::Error(format!("Download failed: {}", e))).await.is_err() { return; }
                             return;
                         }
                     }
                 } else {
-                    let _ = tx_cloned
+                    if tx_cloned
                         .send(AppMessage::Error(
                             "Missing download URL for remote theme".to_string(),
-                        ))
-                        .await;
+                        )).await.is_err() { return; }
                     return;
                 }
             };
 
             // Stage 1: Verify (Try to parse as JSON)
-            let _ = tx_cloned
+            if tx_cloned
                 .send(AppMessage::InstallUpdate {
                     stage: 1,
                     percentage: 50.0,
-                })
-                .await;
+                }).await.is_err() { return; }
             match tokio::fs::read_to_string(&source_path).await {
                 Ok(content) => {
                     if serde_json::from_str::<serde_json::Value>(&content).is_err() {
-                        let _ = tx_cloned
-                            .send(AppMessage::Error("Invalid theme JSON format".to_string()))
-                            .await;
+                        if tx_cloned
+                            .send(AppMessage::Error("Invalid theme JSON format".to_string())).await.is_err() { return; }
                         return;
                     }
                 }
                 Err(e) => {
-                    let _ = tx_cloned
+                    if tx_cloned
                         .send(AppMessage::Error(format!(
                             "Could not read theme file: {}",
                             e
-                        )))
-                        .await;
+                        ))).await.is_err() { return; }
                     return;
                 }
             }
 
             // Stage 2: Backup
-            let _ = tx_cloned
+            if tx_cloned
                 .send(AppMessage::InstallUpdate {
                     stage: 2,
                     percentage: 75.0,
-                })
-                .await;
+                }).await.is_err() { return; }
             for profile in &profiles {
                 if let Err(e) = backup_manager
                     .backup_profile(profile, &format!("Apply Theme Advanced: {}", name))
                 {
-                    let _ = tx_cloned
-                        .send(AppMessage::Error(format!("Backup failed: {}", e)))
-                        .await;
+                    if tx_cloned
+                        .send(AppMessage::Error(format!("Backup failed: {}", e))).await.is_err() { return; }
                     return;
                 }
             }
 
             // Stage 3: Apply
-            let _ = tx_cloned
+            if tx_cloned
                 .send(AppMessage::InstallUpdate {
                     stage: 3,
                     percentage: 90.0,
-                })
-                .await;
+                }).await.is_err() { return; }
 
             let final_theme_path = if !theme.is_local {
                 let dest = themes_dir.join(format!("{}.omp.json", theme.name));
                 if let Err(e) = tokio::fs::copy(&source_path, &dest).await {
-                    let _ = tx_cloned
-                        .send(AppMessage::Error(format!("Failed to save theme: {}", e)))
-                        .await;
+                    if tx_cloned
+                        .send(AppMessage::Error(format!("Failed to save theme: {}", e))).await.is_err() { return; }
                     return;
                 }
                 dest
@@ -1224,22 +1220,19 @@ impl App {
                 }
 
                 if let Err(e) = tokio::fs::write(profile, new_lines.join(line_ending)).await {
-                    let _ = tx_cloned
-                        .send(AppMessage::Error(format!("Profile update failed: {}", e)))
-                        .await;
+                    if tx_cloned
+                        .send(AppMessage::Error(format!("Profile update failed: {}", e))).await.is_err() { return; }
                     return;
                 }
             }
 
-            let _ = tx_cloned
+            if tx_cloned
                 .send(AppMessage::Success(format!(
                     "Theme '{}' applied successfully!",
                     name
-                )))
-                .await;
-            let _ = tx_cloned
-                .send(AppMessage::ThemeDownloaded(final_theme_path))
-                .await;
+                ))).await.is_err() { return; }
+            if tx_cloned
+                .send(AppMessage::ThemeDownloaded(final_theme_path)).await.is_err() {}
         });
     }
 
@@ -1281,11 +1274,10 @@ impl App {
     #[allow(dead_code)]
     pub fn install_plugin(&self, name: String, module_name: String, tx: mpsc::Sender<AppMessage>) {
         tokio::spawn(async move {
-            let _ = tx
+            if tx
                 .send(AppMessage::InstallProgress {
                     line: format!("Installing module: {}...", name),
-                })
-                .await;
+                }).await.is_err() { return; }
 
             let output = tokio::process::Command::new("powershell")
                 .args([
@@ -1300,15 +1292,14 @@ impl App {
 
             match output {
                 Ok(out) if out.status.success() => {
-                    let _ = tx.send(AppMessage::PluginInstalled(name)).await;
+                    if tx.send(AppMessage::PluginInstalled(name)).await.is_err() {}
                 }
                 _ => {
-                    let _ = tx
+                    if tx
                         .send(AppMessage::Error(format!(
                             "Failed to install module {}",
                             module_name
-                        )))
-                        .await;
+                        ))).await.is_err() {}
                 }
             }
         });
@@ -1476,10 +1467,34 @@ impl App {
             }
         }
 
-        // Back to Welcome / Help
-        if key.code == KeyCode::Esc
-            || (key.code == KeyCode::Char('h') && !matches!(self.state, AppState::Main))
-        {
+        // Back to Welcome / Help or Clear Filter
+        if key.code == KeyCode::Esc {
+            if self.state == AppState::Main {
+                let current_filter = match self.active_view {
+                    ActiveView::Themes => &mut self.filter,
+                    ActiveView::Fonts => &mut self.fonts_filter,
+                    ActiveView::Segments => &mut self.segments_filter,
+                };
+                if !current_filter.is_empty() {
+                    current_filter.clear();
+
+                    // Reset selection to top after clearing filter
+                    match self.active_view {
+                        ActiveView::Themes => {
+                            self.list_state.select(Some(0));
+                            if let Some(t) = self.filtered_themes().first() {
+                                self.theme_preview = " Loading preview...".to_string();
+                                self.load_theme_preview(t.clone(), tx.clone());
+                            } else {
+                                self.theme_preview.clear();
+                            }
+                        },
+                        ActiveView::Fonts => self.fonts_list_state.select(Some(0)),
+                        ActiveView::Segments => self.plugins_list_state.select(Some(0)),
+                    }
+                    return Ok(false);
+                }
+            }
             if self.state != AppState::Welcome {
                 self.state = AppState::Welcome;
                 self.filter.clear();
@@ -1487,6 +1502,13 @@ impl App {
                 self.segments_filter.clear();
                 return Ok(false);
             }
+        }
+        if key.code == KeyCode::Char('h') && !matches!(self.state, AppState::Main) && self.state != AppState::Welcome {
+            self.state = AppState::Welcome;
+            self.filter.clear();
+            self.fonts_filter.clear();
+            self.segments_filter.clear();
+            return Ok(false);
         }
 
         // --- 2. STATE-SPECIFIC LOGIC ---
@@ -1606,20 +1628,20 @@ impl App {
                         }
                     }
                     // --- Standardized Global View Shortcuts ---
-                    KeyCode::Char('1') => { 
-                        self.state = AppState::Main; 
-                        self.active_view = ActiveView::Themes; 
+                    KeyCode::Char('1') => {
+                        self.state = AppState::Main;
+                        self.active_view = ActiveView::Themes;
                         if let Some(t) = self.filtered_themes().first() {
                             self.load_theme_preview(t.clone(), tx.clone());
                         }
                     },
                     KeyCode::Char('2') => { self.state = AppState::Main; self.active_view = ActiveView::Fonts; },
                     KeyCode::Char('3') => { self.state = AppState::Main; self.active_view = ActiveView::Segments; },
-                    
+
                     // --- Mnemonic Quick Action Shortcuts ---
-                    KeyCode::Char('r') | KeyCode::Char('R') => { 
-                        self.welcome_selected_action = 0; 
-                        let _ = self.handle_input(crossterm::event::KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE), tx); 
+                    KeyCode::Char('r') | KeyCode::Char('R') => {
+                        self.welcome_selected_action = 0;
+                        let _ = self.handle_input(crossterm::event::KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE), tx);
                     },
                     KeyCode::Char('n') | KeyCode::Char('N') => self.state = AppState::ConfirmMassFontInstallation,
                     KeyCode::Char('i') | KeyCode::Char('I') => {
@@ -1635,7 +1657,7 @@ impl App {
                         self.welcome_selected_action = 8;
                         let _ = self.handle_input(crossterm::event::KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE), tx);
                     },
-                    
+
                     KeyCode::Char('q') => return Ok(true),
                     _ => {}
                 }

@@ -63,7 +63,7 @@ fn render_main(f: &mut Frame, area: Rect, app: &mut App) {
     // Floating modals — rendered on top of everything
     match &app.state {
         AppState::Success(msg) => {
-            render_modal(f, area, " ✓ Applied ", &msg, C_ACTIVE, "any key");
+            render_modal(f, area, " ✓ Applied ", msg, C_ACTIVE, "any key");
         }
         AppState::FontSuccess(name) => {
             render_modal(f, area, " ✓ Font Installed ", &format!("'{}' installed successfully.", name), C_LOCAL, "any key to continue");
@@ -75,7 +75,7 @@ fn render_main(f: &mut Frame, area: Rect, app: &mut App) {
             render_modal(f, area, " ⏳ Working ", &format!("Processing: {}\n\nThis may take a moment...", name), C_ACCENT, "please wait");
         }
         AppState::Error(msg) => {
-            render_modal(f, area, " ✗ Error ", &msg, C_ERROR, "any key");
+            render_modal(f, area, " ✗ Error ", msg, C_ERROR, "any key");
         }
         AppState::ApplyingProgress { name, stage, progress } => {
             let title = match stage {
@@ -249,7 +249,7 @@ fn render_themes(f: &mut Frame, area: Rect, app: &mut App) {
     let n_local  = app.themes.len();
     let n_remote = app.remote_themes.len();
 
-    let items: Vec<ListItem> = themes.iter().map(|t| {
+    let mut items: Vec<ListItem> = themes.iter().map(|t| {
         if t.is_local {
             ListItem::new(format!("  L  {}", t.name))
                 .style(Style::default().fg(C_LOCAL))
@@ -258,6 +258,15 @@ fn render_themes(f: &mut Frame, area: Rect, app: &mut App) {
                 .style(Style::default().fg(C_REMOTE))
         }
     }).collect();
+
+    if items.is_empty() {
+        let msg = if app.filter.is_empty() {
+            "  No themes available.".to_string()
+        } else {
+            format!("  No themes matching '{}'", app.filter)
+        };
+        items.push(ListItem::new(msg).style(Style::default().fg(C_DIM).add_modifier(Modifier::ITALIC)));
+    }
 
     let title = if app.filter.is_empty() {
         format!(" Themes  L:{}  R:{} ", n_local, n_remote)
@@ -352,10 +361,19 @@ fn render_fonts(f: &mut Frame, area: Rect, app: &mut App) {
     render_search_bar(f, left[0], &app.fonts_filter, "Fonts");
 
     let fonts = app.filtered_fonts();
-    let items: Vec<ListItem> = fonts.iter().map(|font| {
+    let mut items: Vec<ListItem> = fonts.iter().map(|font| {
         ListItem::new(format!("   {}", font.name))
             .style(Style::default().fg(C_WHITE))
     }).collect();
+
+    if items.is_empty() {
+        let msg = if app.fonts_filter.is_empty() {
+            "  No fonts available.".to_string()
+        } else {
+            format!("  No fonts matching '{}'", app.fonts_filter)
+        };
+        items.push(ListItem::new(msg).style(Style::default().fg(C_DIM).add_modifier(Modifier::ITALIC)));
+    }
 
     let title = if app.fonts_filter.is_empty() {
         format!(" Nerd Fonts ({}) ", fonts.len())
@@ -453,7 +471,7 @@ fn render_segments(f: &mut Frame, area: Rect, app: &mut App) {
 
     let segments = app.filtered_segments();
 
-    let items: Vec<ListItem> = segments.iter().map(|s| {
+    let mut items: Vec<ListItem> = segments.iter().map(|s| {
         let active   = app.is_segment_active(s);
         let dot      = if active { "●" } else { "○" };
         let cat_col  = match s.category.as_str() {
@@ -472,6 +490,15 @@ fn render_segments(f: &mut Frame, area: Rect, app: &mut App) {
             Span::styled(s.name.clone(), name_style),
         ]))
     }).collect();
+
+    if items.is_empty() {
+        let msg = if app.segments_filter.is_empty() {
+            "  No segments available.".to_string()
+        } else {
+            format!("  No segments matching '{}'", app.segments_filter)
+        };
+        items.push(ListItem::new(msg).style(Style::default().fg(C_DIM).add_modifier(Modifier::ITALIC)));
+    }
 
     let title = if app.segments_filter.is_empty() {
         format!(" Segments ({}) ", segments.len())
@@ -622,7 +649,7 @@ fn render_welcome(f: &mut Frame, area: Rect, app: &App) {
     // ── Left: Quick Actions ─────────────────────────────────────────────────
     let action_defs: &[(&str, &str, usize)] = &[
         ("R", "Random Theme",             0),
-        ("N", "Install Nerd Fonts",       1), 
+        ("N", "Install Nerd Fonts",       1),
         ("I", "Toggle Terminal-Icons",    2),
         ("D", "Diagnostics (Soon)",       3),
         ("V", "View Backups Info",        4),
@@ -781,7 +808,7 @@ fn render_welcome(f: &mut Frame, area: Rect, app: &App) {
     );
 
     // ── Overlays ───────────────────────────────────────────────────────────
-    
+
     // 1. Confirm Mass Font Installation
     if app.state == AppState::ConfirmMassFontInstallation {
         let area = centered_rect(60, 25, f.size());
@@ -790,7 +817,7 @@ fn render_welcome(f: &mut Frame, area: Rect, app: &App) {
             .title(" Confirm Mass Installation ")
             .borders(Borders::ALL)
             .border_style(Style::default().fg(C_ACCENT));
-        
+
         let text = vec![
             Line::from(""),
             Line::from("  You are about to install ALL Nerd Fonts available."),
@@ -805,7 +832,7 @@ fn render_welcome(f: &mut Frame, area: Rect, app: &App) {
         ];
         f.render_widget(Paragraph::new(text).block(block), area);
     }
-    
+
     // 2. Installation Progress Gauge
     if let AppState::InstallingAllFonts { progress, current_font, index, total } = &app.state {
         let area = centered_rect(70, 20, f.size());
@@ -1001,6 +1028,13 @@ fn render_search_bar(f: &mut Frame, area: Rect, filter: &str, context: &str) {
             Style::default().fg(C_WHITE),
         )
     };
+
+    let title = if filter.is_empty() {
+        " / Search ".to_string()
+    } else {
+        " / Search (Esc to clear) ".to_string()
+    };
+
     f.render_widget(
         Paragraph::new(text).style(style).block(
             Block::default()
@@ -1010,7 +1044,7 @@ fn render_search_bar(f: &mut Frame, area: Rect, filter: &str, context: &str) {
                 } else {
                     Style::default().fg(C_ACCENT)
                 })
-                .title(" / Search "),
+                .title(title),
         ),
         area,
     );

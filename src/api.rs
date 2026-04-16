@@ -22,7 +22,7 @@ pub fn check_internet_connectivity() -> bool {
     // Attempting to resolve a reliable host or connecting to a public DNS
     use std::net::{TcpStream, ToSocketAddrs};
     let timeout = std::time::Duration::from_millis(1500);
-    
+
     // We try to connect to a public DNS (Cloudflare) on port 53
     match "1.1.1.1:53".to_socket_addrs() {
         Ok(mut addrs) => {
@@ -39,7 +39,7 @@ pub fn check_internet_connectivity() -> bool {
 pub async fn download_theme_file(name: &str, url: &str, target_dir: &std::path::Path) -> Result<std::path::PathBuf, String> {
     let client = get_client();
     let file_path = target_dir.join(format!("{}.omp.json", name));
-    
+
     match client.get(url).send().await {
         Ok(resp) => {
             if !resp.status().is_success() {
@@ -119,7 +119,7 @@ pub async fn setup_app_task_with_urls(
                 .collect();
 
             // Sending the remote themes metadata back to the main UI loop
-            let _ = tx.send(AppMessage::RemoteThemesLoaded(themes)).await;
+            if tx.send(AppMessage::RemoteThemesLoaded(themes)).await.is_err() { return; }
         }
     }
 
@@ -146,7 +146,7 @@ pub async fn setup_app_task_with_urls(
                 .collect();
 
             // Sending the font metadata back to the main UI loop
-            let _ = tx.send(AppMessage::FontsLoaded(fonts)).await;
+            if tx.send(AppMessage::FontsLoaded(fonts)).await.is_err() {}
         }
     }
 }
