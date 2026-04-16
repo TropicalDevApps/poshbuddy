@@ -549,6 +549,29 @@ impl App {
     }
 
     /// Returns a unified list of filtered themes (Local + Unique Remote)
+    pub fn filtered_themes_count(&self) -> usize {
+        let filter = &self.filter;
+        let mut count = 0;
+
+        // Count Local
+        for t in &self.themes {
+            if contains_ignore_ascii_case(&t.name, filter) {
+                count += 1;
+            }
+        }
+
+        // Count Remote (only if not local)
+        for rt in &self.remote_themes {
+            if contains_ignore_ascii_case(&rt.name, filter)
+                && !self.themes.iter().any(|t| t.name == rt.name) {
+                    count += 1;
+                }
+        }
+
+        count
+    }
+
+    /// Returns a unified list of filtered themes (Local + Unique Remote)
     pub fn filtered_themes(&self) -> Vec<ThemeAsset> {
         let filter = &self.filter;
         let mut unified = Vec::new();
@@ -583,6 +606,14 @@ impl App {
         });
     }
 
+    /// Returns the count of filtered fonts based on search criteria without allocating
+    pub fn filtered_fonts_count(&self) -> usize {
+        self.fonts
+            .iter()
+            .filter(|f| contains_ignore_ascii_case(&f.name, &self.fonts_filter))
+            .count()
+    }
+
     /// Returns a filtered list of fonts based on search criteria
     pub fn filtered_fonts(&self) -> Vec<FontAsset> {
         self.fonts
@@ -590,6 +621,18 @@ impl App {
             .filter(|f| contains_ignore_ascii_case(&f.name, &self.fonts_filter))
             .cloned()
             .collect()
+    }
+
+    /// Returns the count of filtered segments based on search criteria without allocating
+    pub fn filtered_segments_count(&self) -> usize {
+        self.segments
+            .iter()
+            .filter(|p| {
+                contains_ignore_ascii_case(&p.name, &self.segments_filter)
+                    || contains_ignore_ascii_case(&p.description, &self.segments_filter)
+                    || contains_ignore_ascii_case(&p.category, &self.segments_filter)
+            })
+            .count()
     }
 
     /// Returns a filtered list of segments based on search criteria
