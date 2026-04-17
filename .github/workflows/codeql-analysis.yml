@@ -30,6 +30,8 @@ jobs:
       uses: github/codeql-action/init@v3
       with:
         languages: ${{ matrix.language }}
+        # Run without advanced queries so it processes successfully
+        queries: security-extended,security-and-quality
 
     - name: Install Rust Toolchain
       uses: dtolnay/rust-toolchain@stable
