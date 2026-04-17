@@ -399,7 +399,10 @@ mod tests {
             .validate_powershell_syntax("function test() { Write-Host 'ok'")
             .unwrap();
         assert!(!result.is_valid());
-        assert!(result.errors.iter().any(|e| e.contains("Unbalanced braces")));
+        assert!(result
+            .errors
+            .iter()
+            .any(|e| e.contains("Unbalanced braces")));
     }
 
     #[test]
@@ -409,7 +412,10 @@ mod tests {
             "oh-my-posh init pwsh --config 'C:\\nonexistent\\theme.omp.json' | Invoke-Expression";
         let result = diag.validate_powershell_syntax(script).unwrap();
         // Should have a warning about nonexistent path
-        assert!(result.warnings.iter().any(|w| w.contains("Theme path does not exist")));
+        assert!(result
+            .warnings
+            .iter()
+            .any(|w| w.contains("Theme path does not exist")));
     }
 
     #[test]
@@ -469,11 +475,14 @@ mod tests {
         use std::io::Write;
         let diag = Diagnostic::new();
         let mut temp_file = tempfile::NamedTempFile::new().unwrap();
-        writeln!(temp_file, "function test {").unwrap(); // Unbalanced braces
+        writeln!(temp_file, "function test {{").unwrap(); // Unbalanced braces
 
         let result = diag.check_profile(temp_file.path()).unwrap();
         assert!(!result.is_valid());
-        assert!(result.errors.iter().any(|e| e.contains("Unbalanced braces")));
+        assert!(result
+            .errors
+            .iter()
+            .any(|e| e.contains("Unbalanced braces")));
     }
 
     #[test]

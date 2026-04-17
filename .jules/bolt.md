@@ -10,3 +10,6 @@
 ## 2026-04-15 - Graceful Background Task Termination
 **Learning:** Background tokio tasks using `mpsc` channels for UI updates continue to consume resources (CPU/Memory) if the UI receiver drops during application shutdown and the sender's error is ignored.
 **Action:** When using `tokio::sync::mpsc` channels, explicitly handle `tx.send().await` errors (e.g., `if tx.send(...).await.is_err() { return; }`) to gracefully terminate the task when the channel is closed. Avoid this pattern with `try_send()`, as it errors on full channels (`TrySendError::Full`), which can unintentionally abort tasks during traffic spikes.
+## 2024-04-17 - Vector allocation overhead in TUI render loops
+**Learning:** In Ratatui-based TUIs, computing list lengths using methods that clone and filter into a new `Vec` inside the rapid render loop causes significant and continuous memory allocation overhead.
+**Action:** Implement and use iterator-based `_count()` methods (e.g., `.iter().filter(...).count()`) exclusively for getting lengths during rendering to prevent unnecessary allocations.
