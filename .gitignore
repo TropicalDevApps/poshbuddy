@@ -25,3 +25,4 @@ cargo_test_restored_3.txt
 cargo_test_restored.txt
 .manifests/migration.tsmft
 .gitignore
+poshbuddy.code-workspace
