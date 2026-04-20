@@ -10,3 +10,6 @@
 ## 2026-04-15 - Graceful Background Task Termination
 **Learning:** Background tokio tasks using `mpsc` channels for UI updates continue to consume resources (CPU/Memory) if the UI receiver drops during application shutdown and the sender's error is ignored.
 **Action:** When using `tokio::sync::mpsc` channels, explicitly handle `tx.send().await` errors (e.g., `if tx.send(...).await.is_err() { return; }`) to gracefully terminate the task when the channel is closed. Avoid this pattern with `try_send()`, as it errors on full channels (`TrySendError::Full`), which can unintentionally abort tasks during traffic spikes.
+## 2026-04-20 - Prevent UI Render Loop Allocations
+**Learning:** Calling methods like `filtered_themes().len()` inside a TUI application's render loop that allocates and clones full `Vec`s of assets causes severe CPU and memory pressure because the render loop runs very frequently (often every few milliseconds).
+**Action:** Always implement and use iterator-based `_count()` methods (e.g., `.filter(...).count()`) for list sizes in render functions to avoid unnecessary memory allocations.

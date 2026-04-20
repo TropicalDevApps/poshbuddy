@@ -526,6 +526,7 @@ mod tests {
 mod filtering_tests {
     use super::*;
     use ratatui::widgets::ListState;
+    use std::path::PathBuf;
 
     fn create_test_app() -> App {
         App {
