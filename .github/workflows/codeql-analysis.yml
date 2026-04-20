@@ -30,6 +30,7 @@ jobs:
       uses: github/codeql-action/init@v4
       with:
         languages: ${{ matrix.language }}
+        build-mode: manual
 
     - name: Install Rust Toolchain
       uses: dtolnay/rust-toolchain@stable
