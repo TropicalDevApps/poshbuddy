@@ -197,15 +197,13 @@ impl App {
         }
     }
 
-    /// PERFORMANCE OPTIMIZATION (Bolt):
-    /// Calculates the number of filtered themes using iterators without allocating
-    /// a new Vector or cloning string data, avoiding memory pressure during the render loop.
+    /// Returns a count of filtered themes without allocating a Vec
     pub fn filtered_themes_count(&self) -> usize {
         let filter = &self.filter;
         let local_count = self.themes.iter().filter(|t| contains_ignore_ascii_case(&t.name, filter)).count();
-        let remote_count = self.remote_themes.iter().filter(|rt| {
-            contains_ignore_ascii_case(&rt.name, filter) && !self.themes.iter().any(|t| t.name == rt.name)
-        }).count();
+        let remote_count = self.remote_themes.iter()
+            .filter(|rt| contains_ignore_ascii_case(&rt.name, filter) && !self.themes.iter().any(|t| t.name == rt.name))
+            .count();
         local_count + remote_count
     }
 
@@ -244,9 +242,7 @@ impl App {
         });
     }
 
-    /// PERFORMANCE OPTIMIZATION (Bolt):
-    /// Calculates the number of filtered fonts using iterators without allocating
-    /// a new Vector or cloning string data, avoiding memory pressure during the render loop.
+    /// Returns a count of filtered fonts without allocating a Vec
     pub fn filtered_fonts_count(&self) -> usize {
         self.fonts
             .iter()
@@ -263,9 +259,7 @@ impl App {
             .collect()
     }
 
-    /// PERFORMANCE OPTIMIZATION (Bolt):
-    /// Calculates the number of filtered segments using iterators without allocating
-    /// a new Vector or cloning string data, avoiding memory pressure during the render loop.
+    /// Returns a count of filtered segments without allocating a Vec
     pub fn filtered_segments_count(&self) -> usize {
         self.segments
             .iter()

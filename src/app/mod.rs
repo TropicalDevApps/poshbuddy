@@ -538,6 +538,7 @@ mod filtering_tests {
     use std::path::PathBuf;
 
     fn create_test_app() -> App {
+        use std::path::PathBuf;
         App {
             state: AppState::Main,
             active_view: ActiveView::Themes,
