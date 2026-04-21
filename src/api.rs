@@ -193,8 +193,8 @@ mod tests {
             .with_body(
                 r#"
             [
-                {"name": "theme1.omp.json", "type": "file", "download_url": "http://example.com/t1", "sha": "s1"},
-                {"name": "theme2.omp.json", "type": "file", "download_url": "http://example.com/t2", "sha": "s2"}
+                {"name": "theme1.omp.json", "type": "file", "download_url": "https://example.com/t1", "sha": "s1"},
+                {"name": "theme2.omp.json", "type": "file", "download_url": "https://example.com/t2", "sha": "s2"}
             ]
             "#,
             )
@@ -256,9 +256,9 @@ mod tests {
             .with_body(
                 r#"
             [
-                {"name": "theme1.omp.json", "type": "file", "download_url": "http://example.com/t1", "sha": "s1"},
-                {"name": "readme.md", "type": "file", "download_url": "http://example.com/r", "sha": "sr"},
-                {"name": "theme2.omp.json", "type": "file", "download_url": "http://example.com/t2", "sha": "s2"}
+                {"name": "theme1.omp.json", "type": "file", "download_url": "https://example.com/t1", "sha": "s1"},
+                {"name": "readme.md", "type": "file", "download_url": "https://example.com/r", "sha": "sr"},
+                {"name": "theme2.omp.json", "type": "file", "download_url": "https://example.com/t2", "sha": "s2"}
             ]
             "#,
             )
@@ -398,14 +398,14 @@ mod tests {
 
     #[tokio::test]
     async fn test_download_theme_file_path_traversal() {
-        let result = download_theme_file("../evil", "http://example.com", std::path::Path::new("/tmp")).await;
+        let result = download_theme_file("../evil", "https://example.com", std::path::Path::new("/tmp")).await;
         assert!(result.is_err());
         assert_eq!(result.unwrap_err(), "Invalid theme name: Contains path traversal characters");
     }
 
     #[tokio::test]
     async fn test_download_to_temp_path_traversal() {
-        let result = download_to_temp("../evil", "http://example.com").await;
+        let result = download_to_temp("../evil", "https://example.com").await;
         assert!(result.is_err());
         assert_eq!(result.unwrap_err(), "Invalid theme name: Contains path traversal characters");
     }
