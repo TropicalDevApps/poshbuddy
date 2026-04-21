@@ -235,22 +235,18 @@ mod tests {
 
         // Empty filter should return all
         assert_eq!(app.filtered_themes().len(), 3);
-        assert_eq!(app.filtered_themes_count(), 3);
 
         // Case-insensitive matching
         app.filter = "JOKER".to_string();
         assert_eq!(app.filtered_themes()[0].name, "joker.omp.json");
-        assert_eq!(app.filtered_themes_count(), 1);
 
         // Partial matching
         app.filter = "omp".to_string();
         assert_eq!(app.filtered_themes().len(), 3);
-        assert_eq!(app.filtered_themes_count(), 3);
 
         // No match
         app.filter = "nonexistent".to_string();
         assert_eq!(app.filtered_themes().len(), 0);
-        assert_eq!(app.filtered_themes_count(), 0);
     }
 
     #[test]
@@ -273,7 +269,6 @@ mod tests {
 
         // Empty filter should return all
         assert_eq!(app.filtered_fonts().len(), 3);
-        assert_eq!(app.filtered_fonts_count(), 3);
 
         // Case-insensitive matching
         app.fonts_filter = "fira".to_string();
@@ -284,17 +279,14 @@ mod tests {
                 download_url: "https://example.com/fira".to_string(),
             }]
         );
-        assert_eq!(app.filtered_fonts_count(), 1);
 
         // Partial matching
         app.fonts_filter = "Code".to_string();
         assert_eq!(app.filtered_fonts().len(), 2);
-        assert_eq!(app.filtered_fonts_count(), 2);
 
         // No match
         app.fonts_filter = "Wingdings".to_string();
         assert_eq!(app.filtered_fonts().len(), 0);
-        assert_eq!(app.filtered_fonts_count(), 0);
     }
 
     #[test]
@@ -532,14 +524,10 @@ mod tests {
 
 #[cfg(test)]
 mod filtering_tests {
-    use std::path::PathBuf;
     use super::*;
     use ratatui::widgets::ListState;
 
-    use std::path::PathBuf;
-
     fn create_test_app() -> App {
-        use std::path::PathBuf;
         App {
             state: AppState::Main,
             active_view: ActiveView::Themes,
@@ -579,7 +567,7 @@ mod filtering_tests {
             fonts: vec![],
             filter: "".to_string(),
             fonts_filter: "".to_string(),
-            themes_dir: std::path::PathBuf::from("/mock/themes/dir"),
+            themes_dir: PathBuf::from("/mock/themes/dir"),
             version: "1.0.0".to_string(),
             list_state: ListState::default(),
             fonts_list_state: ListState::default(),
