@@ -535,6 +535,7 @@ mod filtering_tests {
     use std::path::PathBuf;
     use super::*;
     use ratatui::widgets::ListState;
+    use std::path::PathBuf;
 
     use std::path::PathBuf;
 
