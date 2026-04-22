@@ -201,8 +201,9 @@ impl App {
     pub fn filtered_themes_count(&self) -> usize {
         let filter = &self.filter;
         let local_count = self.themes.iter().filter(|t| contains_ignore_ascii_case(&t.name, filter)).count();
+        let local_names: std::collections::HashSet<&str> = self.themes.iter().map(|t| t.name.as_str()).collect();
         let remote_count = self.remote_themes.iter()
-            .filter(|rt| contains_ignore_ascii_case(&rt.name, filter) && !self.themes.iter().any(|t| t.name == rt.name))
+            .filter(|rt| contains_ignore_ascii_case(&rt.name, filter) && !local_names.contains(rt.name.as_str()))
             .count();
         local_count + remote_count
     }
@@ -211,6 +212,7 @@ impl App {
     pub fn filtered_themes(&self) -> Vec<ThemeAsset> {
         let filter = &self.filter;
         let mut unified = Vec::new();
+        let local_names: std::collections::HashSet<&str> = self.themes.iter().map(|t| t.name.as_str()).collect();
 
         // Add Local
         for t in &self.themes {
@@ -222,7 +224,7 @@ impl App {
         // Add Remote (only if not local)
         for rt in &self.remote_themes {
             if contains_ignore_ascii_case(&rt.name, filter)
-                && !self.themes.iter().any(|t| t.name == rt.name) {
+                && !local_names.contains(rt.name.as_str()) {
                     unified.push(ThemeAsset {
                         name: rt.name.clone(),
                         is_local: false,
