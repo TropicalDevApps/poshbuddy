@@ -10,3 +10,6 @@
 ## 2024-04-18 - Estilos de foco para elementos deshabilitados en TUIs
 **Learning:** En las aplicaciones de terminal (TUI), los elementos de menú que están deshabilitados pero pueden recibir el foco del teclado (como opciones futuras o funciones en desarrollo) deben indicar visualmente que están seleccionados. Si un elemento deshabilitado no cambia su estilo cuando el usuario navega hacia él, se pierde el rastro del cursor y la navegación por teclado se vuelve confusa.
 **Action:** Al diseñar estilos para listas o menús en Ratatui, siempre proporcionar una combinación de fondo tenue (e.g., `Color::DarkGray`) para el estado `is_disabled && is_selected`, asegurando así que el usuario sepa dónde está el cursor sin sugerir que la acción está disponible.
+## 2024-05-20 - Un-highlighting Empty States in TUI Lists
+**Learning:** In Ratatui-based TUIs, when rendering lists with a fallback 'empty' message as a `ListItem`, conditionally disable the list's `highlight_style` and `highlight_symbol` (e.g., `if !items.is_empty()`). If left enabled, the non-interactive message is highlighted as selectable, which breaks user expectations.
+**Action:** Always conditionally disable selection highlighting for fallback state list items.
