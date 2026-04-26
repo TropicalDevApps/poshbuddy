@@ -107,6 +107,91 @@ poshbuddy install font FiraCode
 | **V** | View and restore **Backups**.         |
 | **B** | Create **Manual Backup** of profiles. |
 
+### Graphic Structure
+
+
+```mermaid
+flowchart TD
+
+subgraph group_runtime["Runtime"]
+  node_main(("Main<br/>entrypoint<br/>[main.rs]"))
+  node_cli["CLI<br/>command surface<br/>[cli.rs]"]
+  node_ui["TUI<br/>terminal ui<br/>[ui.rs]"]
+  node_appmod{{"App core<br/>orchestration module<br/>[mod.rs]"}}
+  node_handlers["Handlers<br/>event bridge<br/>[handlers.rs]"]
+  node_services["Services<br/>business logic<br/>[services.rs]"]
+  node_models["Models<br/>state model<br/>[models.rs]"]
+  node_api["Theme API<br/>remote catalog<br/>[api.rs]"]
+  node_assets["Assets<br/>asset catalog<br/>[assets.rs]"]
+  node_backup[("Backup<br/>safe edit<br/>[backup.rs]")]
+  node_installer["Installer<br/>dependency install"]
+  node_diagnostic["Diagnostics<br/>environment checks<br/>[diagnostic.rs]"]
+end
+
+subgraph group_external["External"]
+  node_profilefs[("Profiles<br/>filesystem")]
+  node_ompremote["OMP themes<br/>remote source"]
+  node_fonts["Nerd Fonts<br/>download source"]
+  node_powershell(("PowerShell<br/>host environment"))
+end
+
+subgraph group_delivery["Delivery"]
+  node_githubci["GitHub CI<br/>automation<br/>[workflows]"]
+  node_tests["Tests<br/>integration harness<br/>[example.spec.ts]"]
+end
+
+node_main -->|"dispatches"| node_cli
+node_main -->|"dispatches"| node_ui
+node_main -->|"boots"| node_appmod
+node_cli -->|"uses"| node_services
+node_ui -->|"events"| node_handlers
+node_handlers -->|"invokes"| node_services
+node_appmod -->|"holds"| node_models
+node_appmod -->|"wires"| node_handlers
+node_appmod -->|"orchestrates"| node_services
+node_services -->|"queries"| node_api
+node_services -->|"manages"| node_assets
+node_services -->|"protects"| node_backup
+node_services -->|"installs"| node_installer
+node_services -->|"checks"| node_diagnostic
+node_services -->|"updates"| node_models
+node_api -->|"fetches"| node_ompremote
+node_assets -->|"syncs"| node_ompremote
+node_backup -->|"writes"| node_profilefs
+node_installer -->|"downloads"| node_fonts
+node_diagnostic -->|"inspects"| node_powershell
+node_services -->|"edits"| node_profilefs
+node_services -->|"guards"| node_powershell
+node_githubci -->|"runs"| node_tests
+
+click node_main "https://github.com/julesklord/poshbuddy/blob/main/src/main.rs"
+click node_cli "https://github.com/julesklord/poshbuddy/blob/main/src/cli.rs"
+click node_ui "https://github.com/julesklord/poshbuddy/blob/main/src/ui.rs"
+click node_appmod "https://github.com/julesklord/poshbuddy/blob/main/src/app/mod.rs"
+click node_handlers "https://github.com/julesklord/poshbuddy/blob/main/src/app/handlers.rs"
+click node_services "https://github.com/julesklord/poshbuddy/blob/main/src/app/services.rs"
+click node_models "https://github.com/julesklord/poshbuddy/blob/main/src/app/models.rs"
+click node_api "https://github.com/julesklord/poshbuddy/blob/main/src/api.rs"
+click node_assets "https://github.com/julesklord/poshbuddy/blob/main/src/assets.rs"
+click node_backup "https://github.com/julesklord/poshbuddy/blob/main/src/backup.rs"
+click node_installer "https://github.com/julesklord/poshbuddy/blob/main/src/plugin_installer.rs"
+click node_diagnostic "https://github.com/julesklord/poshbuddy/blob/main/src/diagnostic.rs"
+click node_githubci "https://github.com/julesklord/poshbuddy/blob/main/.github/workflows"
+click node_tests "https://github.com/julesklord/poshbuddy/blob/main/tests/example.spec.ts"
+
+classDef toneNeutral fill:#f8fafc,stroke:#334155,stroke-width:1.5px,color:#0f172a
+classDef toneBlue fill:#dbeafe,stroke:#2563eb,stroke-width:1.5px,color:#172554
+classDef toneAmber fill:#fef3c7,stroke:#d97706,stroke-width:1.5px,color:#78350f
+classDef toneMint fill:#dcfce7,stroke:#16a34a,stroke-width:1.5px,color:#14532d
+classDef toneRose fill:#ffe4e6,stroke:#e11d48,stroke-width:1.5px,color:#881337
+classDef toneIndigo fill:#e0e7ff,stroke:#4f46e5,stroke-width:1.5px,color:#312e81
+classDef toneTeal fill:#ccfbf1,stroke:#0f766e,stroke-width:1.5px,color:#134e4a
+class node_main,node_cli,node_ui,node_appmod,node_handlers,node_services,node_models,node_api,node_assets,node_backup,node_installer,node_diagnostic toneBlue
+class node_profilefs,node_ompremote,node_fonts,node_powershell toneAmber
+class node_githubci,node_tests toneMint
+
+```
+
 ## Community and Support
 
 Contributions to PoshBuddy are welcome. For technical details, troubleshooting, or feature requests, please refer to the following resources:
