@@ -568,21 +568,21 @@ impl App {
                 }
             }
             ActiveView::Fonts => {
-                let filtered = self.filtered_fonts();
-                if filtered.is_empty() {
+                let count = self.filtered_fonts_count();
+                if count == 0 {
                     return;
                 }
                 let i = match self.fonts_list_state.selected() {
                     Some(i) => {
                         if forward {
-                            if i >= filtered.len() - 1 {
+                            if i >= count - 1 {
                                 0
                             } else {
                                 i + 1
                             }
                         } else {
                             if i == 0 {
-                                filtered.len() - 1
+                                count - 1
                             } else {
                                 i - 1
                             }
@@ -593,21 +593,21 @@ impl App {
                 self.fonts_list_state.select(Some(i));
             }
             ActiveView::Segments => {
-                let filtered = self.filtered_segments();
-                if filtered.is_empty() {
+                let count = self.filtered_segments_count();
+                if count == 0 {
                     return;
                 }
                 let i = match self.plugins_list_state.selected() {
                     Some(i) => {
                         if forward {
-                            if i >= filtered.len() - 1 {
+                            if i >= count - 1 {
                                 0
                             } else {
                                 i + 1
                             }
                         } else {
                             if i == 0 {
-                                filtered.len() - 1
+                                count - 1
                             } else {
                                 i - 1
                             }

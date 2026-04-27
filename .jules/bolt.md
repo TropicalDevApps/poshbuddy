@@ -16,3 +16,6 @@
 ## 2024-05-19 - Cache local sets for O(N+M) TUI filtering
 **Learning:** In Ratatui-based TUIs, comparing remote items against local items during the render loop using nested `O(N*M)` iterator scans (e.g. `!self.local_items.iter().any(...)`) creates massive frame latency as collections grow, and dynamically allocating a `HashSet` inside the method adds memory overhead per frame.
 **Action:** To optimize O(N*M) lookups in TUI render loops (e.g., matching remote themes against local themes), cache a pre-computed `HashSet` of identifiers directly on the application state (`App` struct) and update it via message handlers. Do not dynamically allocate the `HashSet` inside the frequently called render/filter methods to avoid unnecessary heap allocations.
+## 2024-04-27 - Unnecessary Allocation in TUI Navigation
+**Learning:** In Ratatui-based TUI event handlers within this codebase, full list allocation methods (e.g., `filtered_fonts()`) were being called purely to check `.len()` for keyboard navigation boundaries, discarding the heavy `Vec` immediately after.
+**Action:** Always prefer `_count()` methods (e.g., `filtered_fonts_count()`) for list boundary calculations during navigation to avoid O(N) allocation and deep copying on every arrow key press.
