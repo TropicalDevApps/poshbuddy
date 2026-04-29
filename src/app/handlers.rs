@@ -11,21 +11,6 @@ impl App {
     ) {
         while let Ok(msg) = rx.try_recv() {
             match msg {
-                AppMessage::ThemesLoaded(new_themes) => {
-                    for t in new_themes {
-                        if !self.themes.iter().any(|existing| existing.name == t.name) {
-                            self.local_theme_names.insert(t.name.clone());
-                            self.themes.push(t);
-                        }
-                    }
-                    self.themes.sort_by(|a, b| a.name.cmp(&b.name));
-                    if self.state == AppState::Loading {
-                        self.state = AppState::Main;
-                    }
-                    if let Some(t) = self.themes.first() {
-                        self.load_theme_preview(t.clone(), tx.clone());
-                    }
-                }
                 AppMessage::FontsLoaded(mut fonts) => {
                     fonts.sort_by(|a, b| a.name.cmp(&b.name));
                     self.fonts = fonts;
@@ -82,8 +67,8 @@ impl App {
                     self.state = AppState::FontSuccess(name);
                     self.has_nerd_font = true;
                 }
-                AppMessage::PluginInstalled(name) => {
-                    self.state = AppState::PluginSuccess(name);
+                AppMessage::SegmentToggled(name) => {
+                    self.state = AppState::SegmentSuccess(name);
                 }
                 AppMessage::InstallProgress { line } => {
                     if let AppState::InstallingDependency { log, .. } = &mut self.state {
@@ -188,7 +173,7 @@ impl App {
                             }
                         }
                         ActiveView::Fonts => self.fonts_list_state.select(Some(0)),
-                        ActiveView::Segments => self.plugins_list_state.select(Some(0)),
+                        ActiveView::Segments => self.segments_list_state.select(Some(0)),
                     }
                     return Ok(false);
                 }
@@ -219,7 +204,7 @@ impl App {
             AppState::Success(_)
             | AppState::Error(_)
             | AppState::FontSuccess(_)
-            | AppState::PluginSuccess(_) => {
+            | AppState::SegmentSuccess(_) => {
                 self.state = AppState::Main;
                 return Ok(false);
             }
@@ -314,7 +299,7 @@ impl App {
                                     if let Err(e) = self.toggle_plugin(&p) {
                                         self.state = AppState::Error(e.to_string());
                                     } else {
-                                        self.state = AppState::PluginSuccess(p.name);
+                                        self.state = AppState::SegmentSuccess(p.name);
                                     }
                                 }
                             }
@@ -500,7 +485,7 @@ impl App {
                             }
                             ActiveView::Segments => {
                                 self.segments_filter.pop();
-                                self.plugins_list_state.select(Some(0));
+                                self.segments_list_state.select(Some(0));
                             }
                         }
                         return Ok(false);
@@ -520,7 +505,7 @@ impl App {
                             }
                             ActiveView::Segments => {
                                 self.segments_filter.push(c);
-                                self.plugins_list_state.select(Some(0));
+                                self.segments_list_state.select(Some(0));
                             }
                         }
                         return Ok(false);
@@ -596,7 +581,7 @@ impl App {
                 if count == 0 {
                     return;
                 }
-                let i = match self.plugins_list_state.selected() {
+                let i = match self.segments_list_state.selected() {
                     Some(i) => {
                         if forward {
                             if i >= count - 1 {
@@ -614,7 +599,7 @@ impl App {
                     }
                     None => 0,
                 };
-                self.plugins_list_state.select(Some(i));
+                self.segments_list_state.select(Some(i));
             }
         }
     }
@@ -643,13 +628,13 @@ impl App {
                 }
             }
             ActiveView::Segments => {
-                if let Some(selected) = self.plugins_list_state.selected() {
+                if let Some(selected) = self.segments_list_state.selected() {
                     if let Some(segment) = self.filtered_segment_at(selected) {
                         if let Err(e) = self.toggle_segment(&segment) {
                             self.state =
                                 AppState::Error(format!("Failed to toggle segment: {}", e));
                         } else {
-                            self.state = AppState::PluginSuccess(segment.name.clone());
+                            self.state = AppState::SegmentSuccess(segment.name.clone());
                         }
                     }
                 }

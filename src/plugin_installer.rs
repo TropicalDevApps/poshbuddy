@@ -7,7 +7,6 @@ use std::io;
 use std::path::Path;
 use std::process::Command;
 
-#[allow(dead_code)]
 pub struct InstallResult {
     pub success: bool,
     pub module_name: String,
@@ -16,7 +15,6 @@ pub struct InstallResult {
     pub rolled_back: bool,
 }
 
-#[allow(dead_code)]
 pub struct PreCheckResult {
     pub can_install: bool,
     pub warnings: Vec<String>,
@@ -27,7 +25,6 @@ pub struct PreCheckResult {
 }
 
 impl PreCheckResult {
-    #[allow(dead_code)]
     pub fn new() -> Self {
         Self {
             can_install: true,
@@ -39,7 +36,6 @@ impl PreCheckResult {
         }
     }
 
-    #[allow(dead_code)]
     pub fn is_ready(&self) -> bool {
         self.can_install && self.errors.is_empty() && self.has_powershell
     }
@@ -56,13 +52,11 @@ pub struct PluginInstaller;
 
 impl PluginInstaller {
     /// Creates a new installer
-    #[allow(dead_code)]
     pub fn new() -> Self {
         Self
     }
 
     /// Runs pre-checks before installation
-    #[allow(dead_code)]
     pub fn pre_check(&self, module_name: &str) -> PreCheckResult {
         let mut result = PreCheckResult::new();
 
@@ -128,7 +122,6 @@ impl PluginInstaller {
 
     /// Installs a module with full transaction
     /// Backs up the profile, attempts installation, and rolls back if it fails
-    #[allow(dead_code)]
     pub async fn install_with_transaction(
         &self,
         name: &str,
@@ -195,9 +188,8 @@ impl PluginInstaller {
     }
 
     /// Installs a PowerShell module
-    #[allow(dead_code)]
     async fn install_module(&self, module_name: &str) -> Result<Option<String>, io::Error> {
-        let output = tokio::process::Command::new("powershell")
+        let output = tokio::process::Command::new("pwsh")
             .env("POSHBUDDY_MODULE_NAME", module_name)
             .args([
                 "-Command",
@@ -222,7 +214,6 @@ impl PluginInstaller {
     }
 
     /// Verifica si PowerShell está disponible
-    #[allow(dead_code)]
     fn check_powershell_available() -> bool {
         Command::new("pwsh")
             .args(["-Command", "$PSVersionTable.PSVersion.Major"])
@@ -239,7 +230,6 @@ impl PluginInstaller {
     }
 
     /// Checks if a module is already installed
-    #[allow(dead_code)]
     fn check_module_installed(module_name: &str) -> Result<bool, io::Error> {
         let output = Command::new("pwsh")
             .env("POSHBUDDY_MODULE_NAME", module_name)
@@ -258,7 +248,6 @@ impl PluginInstaller {
     }
 
     /// Checks PowerShell execution policy
-    #[allow(dead_code)]
     fn check_execution_policy() -> Result<String, io::Error> {
         let output = Command::new("pwsh")
             .args(["-Command", "Get-ExecutionPolicy -Scope CurrentUser"])
@@ -272,7 +261,6 @@ impl PluginInstaller {
     }
 
     /// Checks basic internet connectivity
-    #[allow(dead_code)]
     fn check_internet_connectivity() -> bool {
         // Attempts to ping Google DNS as a simple test
         #[cfg(windows)]
@@ -294,9 +282,8 @@ impl PluginInstaller {
     }
 
     /// Uninstalls a module
-    #[allow(dead_code)]
     pub async fn uninstall_module(&self, module_name: &str) -> Result<(), io::Error> {
-        let output = tokio::process::Command::new("powershell")
+        let output = tokio::process::Command::new("pwsh")
             .env("POSHBUDDY_MODULE_NAME", module_name)
             .args([
                 "-Command",
@@ -314,7 +301,6 @@ impl PluginInstaller {
     }
 
     /// Gets information about an installed module
-    #[allow(dead_code)]
     pub fn get_module_info(&self, module_name: &str) -> Result<Option<ModuleInfo>, io::Error> {
         let output = Command::new("pwsh")
             .env("POSHBUDDY_MODULE_NAME", module_name)
@@ -364,7 +350,6 @@ impl Default for PluginInstaller {
 
 /// Information about an installed module
 #[derive(Debug, Clone)]
-#[allow(dead_code)]
 pub struct ModuleInfo {
     pub name: String,
     pub version: String,

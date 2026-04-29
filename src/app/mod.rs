@@ -46,8 +46,8 @@ impl App {
         let mut fonts_list_state = ListState::default();
         fonts_list_state.select(Some(0));
 
-        let mut plugins_list_state = ListState::default();
-        plugins_list_state.select(Some(0));
+        let mut segments_list_state = ListState::default();
+        segments_list_state.select(Some(0));
 
         // 1. Initial system diagnostics
         let has_nerd_font = Self::check_nerd_font();
@@ -96,22 +96,18 @@ impl App {
             segments: crate::assets::get_default_segments(),
             filter: String::new(),
             fonts_filter: String::new(),
-            plugins_filter: String::new(),
             segments_filter: String::new(),
             themes_dir,
             version: env!("CARGO_PKG_VERSION").to_string(),
             list_state,
             fonts_list_state,
-            plugins_list_state,
+            segments_list_state,
             spinner_tick: 0,
             has_nerd_font,
             theme_preview: String::new(),
             detected_profiles: detected_profiles.clone(),
             active_config_path: None,
             backup_manager: crate::backup::BackupManager::new(None),
-            last_backup: None,
-            diagnostic: crate::diagnostic::Diagnostic::new(),
-            plugin_installer: crate::plugin_installer::PluginInstaller::new(),
             welcome_selected_action: 0,
             system_specs: Some(specs),
             total_backups: 0,
@@ -195,10 +191,9 @@ mod tests {
             version: "test".to_string(),
             list_state: ListState::default(),
             fonts_list_state: ListState::default(),
-            plugins_list_state: ListState::default(),
+            segments_list_state: ListState::default(),
             plugins: Vec::new(),
             segments: Vec::new(),
-            plugins_filter: String::new(),
             segments_filter: String::new(),
             spinner_tick: 0,
             has_nerd_font: false,
@@ -206,9 +201,6 @@ mod tests {
             detected_profiles: Vec::new(),
             active_config_path: None,
             backup_manager: crate::backup::BackupManager::new(Some(10)),
-            last_backup: None,
-            diagnostic: crate::diagnostic::Diagnostic::new(),
-            plugin_installer: crate::plugin_installer::PluginInstaller::new(),
             welcome_selected_action: 0,
             system_specs: None,
             total_backups: 0,
@@ -586,10 +578,9 @@ mod filtering_tests {
             version: "1.0.0".to_string(),
             list_state: ListState::default(),
             fonts_list_state: ListState::default(),
-            plugins_list_state: ListState::default(),
+            segments_list_state: ListState::default(),
             plugins: vec![],
             segments: vec![],
-            plugins_filter: "".to_string(),
             segments_filter: "".to_string(),
             spinner_tick: 0,
             has_nerd_font: true,
@@ -597,9 +588,6 @@ mod filtering_tests {
             detected_profiles: vec![],
             active_config_path: None,
             backup_manager: crate::backup::BackupManager::new(Some(10)),
-            last_backup: None,
-            diagnostic: crate::diagnostic::Diagnostic::new(),
-            plugin_installer: crate::plugin_installer::PluginInstaller::new(),
             welcome_selected_action: 0,
             system_specs: None,
             total_backups: 0,
