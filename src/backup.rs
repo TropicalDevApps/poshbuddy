@@ -306,20 +306,6 @@ impl BackupManager {
         Ok(())
     }
 
-    /// Deletes all backups for a specific profile
-    #[allow(dead_code)]
-    pub fn delete_all_backups(&self, profile_path: &Path) -> Result<usize, BackupError> {
-        let backups = self.list_backups(profile_path)?;
-        let count = backups.len();
-
-        for backup in backups {
-            let _ = fs::remove_file(&backup.path);
-            let _ = fs::remove_file(backup.path.with_extension("meta"));
-        }
-
-        Ok(count)
-    }
-
     /// Gets the total size used by all backups
     #[allow(dead_code)]
     pub fn total_backup_size(&self) -> Result<u64, BackupError> {
