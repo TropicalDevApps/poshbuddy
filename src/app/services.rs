@@ -293,16 +293,6 @@ impl App {
             .count()
     }
 
-    /// Returns a filtered list of legacy plugins based on search criteria
-    #[allow(dead_code)]
-    pub fn filtered_plugins(&self) -> Vec<PluginAsset> {
-        self.plugins
-            .iter()
-            .filter(|p| contains_ignore_ascii_case(&p.name, &self.plugins_filter))
-            .cloned()
-            .collect()
-    }
-
     /// Checks if a segment is active in the currently loaded Oh My Posh config
     pub fn is_segment_active(&self, segment: &SegmentAsset) -> bool {
         self.active_segments.contains(&segment.segment_type)
