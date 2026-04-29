@@ -1,5 +1,5 @@
 use crate::app::{ActiveView, App, AppState};
-use ansi_to_tui::IntoText;
+use ansi_to_tui::IntoText as _;
 use ratatui::{
     layout::{Alignment, Constraint, Direction, Layout, Rect},
     style::{Color, Modifier, Style},
@@ -23,14 +23,14 @@ const SPINNER: &[&str] = &["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧
 // ── Root dispatcher ────────────────────────────────────────────────────────────
 pub fn ui(f: &mut Frame, app: &mut App) {
     match app.state.clone() {
-        AppState::Welcome => render_welcome(f, f.size(), app),
-        AppState::DependencyMissing => render_dep_missing(f, f.size()),
-        AppState::Loading => render_loading(f, f.size(), app),
+        AppState::Welcome => render_welcome(f, f.area(), app),
+        AppState::DependencyMissing => render_dep_missing(f, f.area()),
+        AppState::Loading => render_loading(f, f.area(), app),
         AppState::InstallingDependency {
             log,
             current_action,
         } => {
-            render_installing_dep(f, f.size(), &log, &current_action);
+            render_installing_dep(f, f.area(), &log, &current_action);
         }
         AppState::ApplyingProgress {
             name,
@@ -45,9 +45,9 @@ pub fn ui(f: &mut Frame, app: &mut App) {
                 _ => " ⏳ Working ",
             };
             let msg = format!("Theme: {}\n\nProgress: {}%", name, progress);
-            render_modal(f, f.size(), title, &msg, C_ACCENT, Some("please wait"));
+            render_modal(f, f.area(), title, &msg, C_ACCENT, Some("please wait"));
         }
-        _ => render_main(f, f.size(), app),
+        _ => render_main(f, f.area(), app),
     }
 
     render_overlays(f, app);
@@ -170,7 +170,7 @@ fn render_title_bar(f: &mut Frame, area: Rect, app: &App) {
 
     // Right: user + clock
     let time = chrono::Local::now().format("%H:%M").to_string();
-    let user = whoami::username();
+    let user = whoami::username().unwrap_or_else(|_| "unknown".to_string());
     f.render_widget(
         Paragraph::new(format!("{}  {}  ", user, time))
             .alignment(Alignment::Right)
@@ -401,7 +401,7 @@ fn render_themes(f: &mut Frame, area: Rect, app: &mut App) {
             cols[1],
         );
     } else {
-        let preview_text = app.theme_preview.as_str().into_text().unwrap_or_default();
+        let preview_text = app.theme_preview.as_bytes().into_text().unwrap_or_default();
         f.render_widget(
             Paragraph::new(preview_text)
                 .block(preview_block)
@@ -818,8 +818,8 @@ fn render_welcome(f: &mut Frame, area: Rect, app: &App) {
         .split(left_area);
 
     // System Info
-    let username = whoami::username();
-    let hostname = whoami::fallible::hostname().unwrap_or_else(|_| "Host".to_string());
+    let username = whoami::username().unwrap_or_else(|_| "User".to_string());
+    let hostname = whoami::hostname().unwrap_or_else(|_| "Host".to_string());
     let os = std::env::consts::OS;
     let sys_info = vec![
         Line::from(""),
@@ -1005,7 +1005,7 @@ fn render_welcome(f: &mut Frame, area: Rect, app: &App) {
 }
 
 fn render_overlays(f: &mut Frame, app: &App) {
-    let area = f.size();
+    let area = f.area();
 
     // 1. Confirm Mass Font Installation
     if app.state == AppState::ConfirmMassFontInstallation {
