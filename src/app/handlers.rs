@@ -42,8 +42,7 @@ impl App {
                             download_url: None,
                         };
 
-                        if !self.themes.iter().any(|t| t.name == theme_asset.name) {
-                            self.local_theme_names.insert(theme_asset.name.clone());
+                        if self.themes.binary_search_by(|t| t.name.cmp(&theme_asset.name)).is_err() {
                             self.themes.push(theme_asset.clone());
                             self.themes.sort_by(|a, b| a.name.cmp(&b.name));
                         }

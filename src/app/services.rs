@@ -209,7 +209,7 @@ impl App {
             .iter()
             .filter(|rt| {
                 contains_ignore_ascii_case(&rt.name, filter)
-                    && !self.local_theme_names.contains(&rt.name)
+                    && self.themes.binary_search_by(|t| t.name.cmp(&rt.name)).is_err()
             })
             .count();
         local_count + remote_count
@@ -234,7 +234,7 @@ impl App {
         // Search Remote (only if not local)
         for rt in &self.remote_themes {
             if contains_ignore_ascii_case(&rt.name, filter)
-                && !self.local_theme_names.contains(&rt.name)
+                && self.themes.binary_search_by(|t| t.name.cmp(&rt.name)).is_err()
             {
                 if current_idx == index {
                     return Some(ThemeAsset {
@@ -287,7 +287,7 @@ impl App {
         // Add Remote (only if not local)
         for rt in &self.remote_themes {
             if contains_ignore_ascii_case(&rt.name, filter)
-                && !self.local_theme_names.contains(&rt.name)
+                && self.themes.binary_search_by(|t| t.name.cmp(&rt.name)).is_err()
             {
                 unified.push(ThemeAsset {
                     name: rt.name.clone(),
