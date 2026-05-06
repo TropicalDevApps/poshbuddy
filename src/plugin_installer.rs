@@ -51,6 +51,16 @@ impl Default for PreCheckResult {
 pub struct PluginInstaller;
 
 impl PluginInstaller {
+    /// Validates if a module name is safe to use in commands
+    pub fn is_valid_module_name(name: &str) -> bool {
+        if name.is_empty() {
+            return false;
+        }
+        // Only allow alphanumeric characters, dots, underscores, and dashes
+        name.chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '.' || c == '_' || c == '-')
+    }
+
     /// Creates a new installer
     pub fn new() -> Self {
         Self
@@ -59,6 +69,12 @@ impl PluginInstaller {
     /// Runs pre-checks before installation
     pub fn pre_check(&self, module_name: &str) -> PreCheckResult {
         let mut result = PreCheckResult::new();
+
+        if !Self::is_valid_module_name(module_name) {
+            result.errors.push(format!("Invalid module name: '{}'. Only alphanumeric characters, dots, underscores, and dashes are allowed.", module_name));
+            result.can_install = false;
+            return result;
+        }
 
         // 1. Verify PowerShell is available
         result.has_powershell = Self::check_powershell_available();
@@ -189,6 +205,10 @@ impl PluginInstaller {
 
     /// Installs a PowerShell module
     async fn install_module(&self, module_name: &str) -> Result<Option<String>, io::Error> {
+        if !Self::is_valid_module_name(module_name) {
+            return Err(io::Error::new(io::ErrorKind::InvalidInput, "Invalid module name"));
+        }
+
         let output = tokio::process::Command::new("pwsh")
             .env("POSHBUDDY_MODULE_NAME", module_name)
             .args([
@@ -231,6 +251,10 @@ impl PluginInstaller {
 
     /// Checks if a module is already installed
     fn check_module_installed(module_name: &str) -> Result<bool, io::Error> {
+        if !Self::is_valid_module_name(module_name) {
+            return Err(io::Error::new(io::ErrorKind::InvalidInput, "Invalid module name"));
+        }
+
         let output = Command::new("pwsh")
             .env("POSHBUDDY_MODULE_NAME", module_name)
             .args([
@@ -283,6 +307,10 @@ impl PluginInstaller {
 
     /// Uninstalls a module
     pub async fn uninstall_module(&self, module_name: &str) -> Result<(), io::Error> {
+        if !Self::is_valid_module_name(module_name) {
+            return Err(io::Error::new(io::ErrorKind::InvalidInput, "Invalid module name"));
+        }
+
         let output = tokio::process::Command::new("pwsh")
             .env("POSHBUDDY_MODULE_NAME", module_name)
             .args([
@@ -302,6 +330,10 @@ impl PluginInstaller {
 
     /// Gets information about an installed module
     pub fn get_module_info(&self, module_name: &str) -> Result<Option<ModuleInfo>, io::Error> {
+        if !Self::is_valid_module_name(module_name) {
+            return Err(io::Error::new(io::ErrorKind::InvalidInput, "Invalid module name"));
+        }
+
         let output = Command::new("pwsh")
             .env("POSHBUDDY_MODULE_NAME", module_name)
             .args([
@@ -359,6 +391,21 @@ pub struct ModuleInfo {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn test_is_valid_module_name() {
+        assert!(PluginInstaller::is_valid_module_name("posh-git"));
+        assert!(PluginInstaller::is_valid_module_name("Terminal-Icons"));
+        assert!(PluginInstaller::is_valid_module_name("zoxide.powershell"));
+        assert!(PluginInstaller::is_valid_module_name("My_Module_123"));
+
+        assert!(!PluginInstaller::is_valid_module_name(""));
+        assert!(!PluginInstaller::is_valid_module_name("my module"));
+        assert!(!PluginInstaller::is_valid_module_name("module; rm -rf /"));
+        assert!(!PluginInstaller::is_valid_module_name("module|iex"));
+        assert!(!PluginInstaller::is_valid_module_name("$env:USERNAME"));
+        assert!(!PluginInstaller::is_valid_module_name("module&echo test"));
+    }
 
     #[test]
     fn test_pre_check_result() {
