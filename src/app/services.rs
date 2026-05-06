@@ -500,6 +500,14 @@ impl App {
 
     /// Triggers an asynchronous font installation via Oh My Posh CLI
     pub fn install_font(&self, font_name: String, tx: mpsc::Sender<AppMessage>) {
+        if !self.fonts.iter().any(|f| f.name == font_name) {
+            let _ = tx.try_send(AppMessage::Error(format!(
+                "Invalid font name: {}",
+                font_name
+            )));
+            return;
+        }
+
         let cmd = OMP_BINARY;
 
         let font_name_cloned = font_name.clone();
