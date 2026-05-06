@@ -56,9 +56,24 @@ impl PluginInstaller {
         Self
     }
 
+    /// Validates a PowerShell module name against a strict whitelist to prevent injection
+    pub fn is_valid_module_name(name: &str) -> bool {
+        if name.is_empty() {
+            return false;
+        }
+        // Only allow alphanumeric characters, dots, underscores, and dashes
+        name.chars().all(|c| c.is_ascii_alphanumeric() || c == '.' || c == '_' || c == '-')
+    }
+
     /// Runs pre-checks before installation
     pub fn pre_check(&self, module_name: &str) -> PreCheckResult {
         let mut result = PreCheckResult::new();
+
+        if !Self::is_valid_module_name(module_name) {
+            result.errors.push(format!("Invalid module name: '{}'. Only alphanumeric characters, dots, underscores, and dashes are allowed.", module_name));
+            result.can_install = false;
+            return result;
+        }
 
         // 1. Verify PowerShell is available
         result.has_powershell = Self::check_powershell_available();
@@ -189,6 +204,10 @@ impl PluginInstaller {
 
     /// Installs a PowerShell module
     async fn install_module(&self, module_name: &str) -> Result<Option<String>, io::Error> {
+        if !Self::is_valid_module_name(module_name) {
+            return Err(io::Error::other("Invalid module name"));
+        }
+
         let output = tokio::process::Command::new("pwsh")
             .env("POSHBUDDY_MODULE_NAME", module_name)
             .args([
@@ -231,6 +250,10 @@ impl PluginInstaller {
 
     /// Checks if a module is already installed
     fn check_module_installed(module_name: &str) -> Result<bool, io::Error> {
+        if !Self::is_valid_module_name(module_name) {
+            return Err(io::Error::other("Invalid module name"));
+        }
+
         let output = Command::new("pwsh")
             .env("POSHBUDDY_MODULE_NAME", module_name)
             .args([
@@ -283,6 +306,10 @@ impl PluginInstaller {
 
     /// Uninstalls a module
     pub async fn uninstall_module(&self, module_name: &str) -> Result<(), io::Error> {
+        if !Self::is_valid_module_name(module_name) {
+            return Err(io::Error::other("Invalid module name"));
+        }
+
         let output = tokio::process::Command::new("pwsh")
             .env("POSHBUDDY_MODULE_NAME", module_name)
             .args([
@@ -302,6 +329,10 @@ impl PluginInstaller {
 
     /// Gets information about an installed module
     pub fn get_module_info(&self, module_name: &str) -> Result<Option<ModuleInfo>, io::Error> {
+        if !Self::is_valid_module_name(module_name) {
+            return Err(io::Error::other("Invalid module name"));
+        }
+
         let output = Command::new("pwsh")
             .env("POSHBUDDY_MODULE_NAME", module_name)
             .args([
@@ -390,6 +421,29 @@ mod tests {
 
     // Nota: Los tests que requieren PowerShell están marcados como #[ignore]
     // porque pueden no funcionar en todos los entornos
+
+    #[test]
+    fn test_is_valid_module_name() {
+        // Valid names
+        assert!(PluginInstaller::is_valid_module_name("Terminal-Icons"));
+        assert!(PluginInstaller::is_valid_module_name("oh-my-posh"));
+        assert!(PluginInstaller::is_valid_module_name("Posh-Git"));
+        assert!(PluginInstaller::is_valid_module_name("My.Module_123"));
+
+        // Invalid names
+        assert!(!PluginInstaller::is_valid_module_name(""));
+        assert!(!PluginInstaller::is_valid_module_name("Module Name")); // Space
+        assert!(!PluginInstaller::is_valid_module_name("Module;Name")); // Semicolon
+        assert!(!PluginInstaller::is_valid_module_name("Module|Name")); // Pipe
+        assert!(!PluginInstaller::is_valid_module_name("Module&Name")); // Ampersand
+        assert!(!PluginInstaller::is_valid_module_name("Module$Name")); // Dollar
+        assert!(!PluginInstaller::is_valid_module_name("Module'Name")); // Quote
+        assert!(!PluginInstaller::is_valid_module_name("Module\"Name")); // Double quote
+        assert!(!PluginInstaller::is_valid_module_name("Module\\Name")); // Backslash
+        assert!(!PluginInstaller::is_valid_module_name("Module/Name")); // Forward slash
+        assert!(!PluginInstaller::is_valid_module_name("Module`Name")); // Backtick
+        assert!(!PluginInstaller::is_valid_module_name("$(calc)")); // Subexpression
+    }
 
     #[test]
     #[ignore = "Requires PowerShell"]
