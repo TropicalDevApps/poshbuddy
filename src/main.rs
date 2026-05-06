@@ -4,6 +4,7 @@ mod assets;
 mod backup;
 mod cli;
 mod diagnostic;
+pub mod plugin_installer;
 mod ui;
 
 use crate::app::App;

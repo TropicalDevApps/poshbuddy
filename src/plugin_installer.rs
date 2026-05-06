@@ -463,4 +463,14 @@ mod tests {
             .iter()
             .any(|e| e.contains("Invalid module name")));
     }
+
+    #[tokio::test]
+    async fn test_uninstall_module_invalid_name() {
+        let installer = PluginInstaller::new();
+        let result = installer.uninstall_module("Invalid; Name").await;
+        assert!(result.is_err());
+        if let Err(e) = result {
+            assert_eq!(e.kind(), io::ErrorKind::InvalidInput);
+        }
+    }
 }
