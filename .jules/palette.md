@@ -20,3 +20,6 @@
 ## 2024-05-19 - Maintain Context During Progress Modals
 **Learning:** In TUI applications, intercepting progress or loading states at the top-level UI render loop replaces the main view, causing a jarring visual context switch (leaving the user with a floating modal on a blank screen).
 **Action:** Allow the main UI to render as the background and overlay the progress modal within the main view's rendering function to prevent context loss.
+## 2024-05-20 - Visual Progress over Plain Text
+**Learning:** For long-running operations in TUI applications, representing progress as raw text percentages (e.g. "Progress: 50%") provides inferior feedback compared to visual representations.
+**Action:** When working on Ratatui TUIs, use visual widgets like `ratatui::widgets::Gauge` for progress states to improve user perception of speed and completion, making sure to render them as overlays.
