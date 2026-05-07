@@ -29,3 +29,6 @@
 ## 2024-05-21 - Contextual Empty States in Detail Panels
 **Learning:** When a master-detail view has an active filter that yields zero results, the detail panel should not prompt the user to "Select an item to continue". This is confusing because there are no items to select.
 **Action:** Always update detail/preview panels to contextually acknowledge the empty state of the master list (e.g., "No results match your search. Press Esc to clear filter.").
+## 2024-11-23 - Synchronize Master-Detail Views During Search
+**Learning:** In master-detail TUI layouts, changing the search filter updates the master list's content and selection index. If the detail/preview panel is not explicitly synchronized during this live search input, it will display orphaned or stale data from the previous state, confusing the user.
+**Action:** When handling keystrokes (e.g., `Backspace`, character inputs) that modify active filters in a master-detail view, always re-trigger the detail loading logic (e.g., `load_theme_preview`) for the newly highlighted item to maintain UI consistency.
