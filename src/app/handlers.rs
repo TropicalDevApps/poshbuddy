@@ -474,6 +474,12 @@ impl App {
                             ActiveView::Themes => {
                                 self.filter.pop();
                                 self.list_state.select(Some(0));
+                                if let Some(t) = self.filtered_theme_at(0) {
+                                    self.theme_preview = " Loading preview...".to_string();
+                                    self.load_theme_preview(t.clone(), tx.clone());
+                                } else {
+                                    self.theme_preview.clear();
+                                }
                             }
                             ActiveView::Fonts => {
                                 self.fonts_filter.pop();
@@ -494,6 +500,12 @@ impl App {
                             ActiveView::Themes => {
                                 self.filter.push(c);
                                 self.list_state.select(Some(0));
+                                if let Some(t) = self.filtered_theme_at(0) {
+                                    self.theme_preview = " Loading preview...".to_string();
+                                    self.load_theme_preview(t.clone(), tx.clone());
+                                } else {
+                                    self.theme_preview.clear();
+                                }
                             }
                             ActiveView::Fonts => {
                                 self.fonts_filter.push(c);
