@@ -1041,9 +1041,15 @@ fn render_quick_steps(f: &mut Frame, area: Rect, app: &App) {
             )
         };
 
+        let final_label = if is_disabled {
+            format!("{} [Coming Soon]", label)
+        } else {
+            label.to_string()
+        };
+
         actions.push(Line::from(vec![
             Span::styled(format!("  [{}]", key), key_style),
-            Span::styled(format!(" {} ({})", label, mnemonic), label_style),
+            Span::styled(format!(" {} ({})", final_label, mnemonic), label_style),
         ]));
     }
 
