@@ -31,3 +31,7 @@ qp_audit.md
 
 
 gha-creds-*.json
+
+.agents/
+.claude/
+.gemini/
