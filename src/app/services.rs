@@ -1236,7 +1236,7 @@ mod tests {
 
     #[test]
     fn test_refresh_active_segments_no_config() {
-        let mut app = App::default();
+        let mut app = App::new();
         app.active_segments.insert("os".to_string());
         app.active_config_path = None;
 
@@ -1250,7 +1250,7 @@ mod tests {
         let mut file = NamedTempFile::new().unwrap();
         write!(file, "invalid json data").unwrap();
 
-        let mut app = App::default();
+        let mut app = App::new();
         app.active_segments.insert("os".to_string());
         app.active_config_path = Some(file.path().to_path_buf());
 
@@ -1271,7 +1271,7 @@ mod tests {
             ]
         }}"#).unwrap();
 
-        let mut app = App::default();
+        let mut app = App::new();
         app.active_config_path = Some(file.path().to_path_buf());
 
         app.refresh_active_segments();
@@ -1300,7 +1300,7 @@ mod tests {
             ]
         }}"#).unwrap();
 
-        let mut app = App::default();
+        let mut app = App::new();
         app.active_config_path = Some(file.path().to_path_buf());
 
         app.refresh_active_segments();
