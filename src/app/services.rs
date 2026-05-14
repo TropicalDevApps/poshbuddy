@@ -1260,7 +1260,7 @@ mod tests {
             theme_preview: String::new(),
             detected_profiles: profiles,
             active_config_path: None,
-            backup_manager: crate::backup::BackupManager::new(PathBuf::new()),
+            backup_manager: crate::backup::BackupManager::new(None),
             welcome_selected_action: 0,
             system_specs: None,
             total_backups: 0,
