@@ -313,6 +313,14 @@ fn render_themes(f: &mut Frame, area: Rect, app: &mut App) {
 
     render_search_bar(f, left[0], &app.filter, "Themes");
 
+    let is_empty = app.filtered_themes_count() == 0;
+    render_themes_list(f, left[1], app, is_empty);
+
+    // 3. Right column: preview
+    render_themes_preview(f, cols[1], app, is_empty);
+}
+
+fn render_themes_list(f: &mut Frame, area: Rect, app: &mut App, is_empty: bool) {
     let filter = &app.filter;
 
     let local_iter = app
@@ -350,8 +358,6 @@ fn render_themes(f: &mut Frame, area: Rect, app: &mut App) {
             ]);
             ListItem::new(line).style(style)
         });
-
-    let is_empty = app.filtered_themes_count() == 0;
 
     let empty_msg_iter = if is_empty {
         let msg = if app.filter.is_empty() {
@@ -394,9 +400,10 @@ fn render_themes(f: &mut Frame, area: Rect, app: &mut App) {
             .highlight_symbol(" ▶ ");
     }
 
-    f.render_stateful_widget(list, left[1], &mut app.list_state);
+    f.render_stateful_widget(list, area, &mut app.list_state);
+}
 
-    // 3. Right column: preview
+fn render_themes_preview(f: &mut Frame, area: Rect, app: &App, is_empty: bool) {
     let preview_block = Block::default()
         .borders(Borders::ALL)
         .border_style(Style::default().fg(C_ACCENT))
@@ -412,7 +419,7 @@ fn render_themes(f: &mut Frame, area: Rect, app: &mut App) {
             Paragraph::new(msg)
                 .style(Style::default().fg(C_DIM))
                 .block(preview_block),
-            cols[1],
+            area,
         );
     } else {
         let preview_text = app.theme_preview.as_bytes().into_text().unwrap_or_default();
@@ -420,7 +427,7 @@ fn render_themes(f: &mut Frame, area: Rect, app: &mut App) {
             Paragraph::new(preview_text)
                 .block(preview_block)
                 .wrap(Wrap { trim: false }),
-            cols[1],
+            area,
         );
     }
 }
@@ -567,13 +574,7 @@ fn render_fonts(f: &mut Frame, area: Rect, app: &mut App) {
 // ═══════════════════════════════════════════════════════════════════════════════
 
 fn render_segments(f: &mut Frame, area: Rect, app: &mut App) {
-    let chunks = Layout::default()
-        .direction(Direction::Vertical)
-        .constraints([
-            Constraint::Length(3), // Header
-            Constraint::Min(0),    // Content
-        ])
-        .split(area);
+    let chunks = layout_header_content(area);
 
     // Header
     f.render_widget(
@@ -583,19 +584,18 @@ fn render_segments(f: &mut Frame, area: Rect, app: &mut App) {
         chunks[0],
     );
 
-    let cols = Layout::default()
-        .direction(Direction::Horizontal)
-        .constraints([Constraint::Percentage(45), Constraint::Percentage(55)])
-        .split(chunks[1]);
+    let cols = layout_two_columns(chunks[1], 45, 55);
 
     // Left: search + list
-    let left = Layout::default()
-        .direction(Direction::Vertical)
-        .constraints([Constraint::Length(3), Constraint::Min(0)])
-        .split(cols[0]);
-
+    let left = layout_header_content(cols[0]);
     render_search_bar(f, left[0], &app.segments_filter, "Segments");
+    render_segment_list(f, left[1], app);
 
+    // Right: detail
+    render_segment_detail(f, cols[1], app);
+}
+
+fn render_segment_list(f: &mut Frame, area: Rect, app: &mut App) {
     let segments_iter = app
         .segments
         .iter()
@@ -665,13 +665,16 @@ fn render_segments(f: &mut Frame, area: Rect, app: &mut App) {
             .highlight_symbol(" ▶ ");
     }
 
-    f.render_stateful_widget(list, left[1], &mut app.segments_list_state);
+    f.render_stateful_widget(list, area, &mut app.segments_list_state);
+}
 
-    // Right: detail
+fn render_segment_detail(f: &mut Frame, area: Rect, app: &mut App) {
     let selected = app
         .segments_list_state
         .selected()
         .and_then(|i| app.filtered_segment_at(i));
+    let is_empty = app.filtered_segments_count() == 0;
+
     let detail_block = Block::default()
         .borders(Borders::ALL)
         .border_style(Style::default().fg(C_DIM))
@@ -712,7 +715,7 @@ fn render_segments(f: &mut Frame, area: Rect, app: &mut App) {
             Paragraph::new(lines)
                 .block(detail_block)
                 .wrap(Wrap { trim: true }),
-            cols[1],
+            area,
         );
     } else {
         let msg = if is_empty && !app.segments_filter.is_empty() {
@@ -724,7 +727,7 @@ fn render_segments(f: &mut Frame, area: Rect, app: &mut App) {
             Paragraph::new(msg)
                 .style(Style::default().fg(C_DIM))
                 .block(detail_block),
-            cols[1],
+            area,
         );
     }
 }
@@ -780,24 +783,37 @@ fn render_welcome(f: &mut Frame, area: Rect, app: &App) {
     }
 
     // Dashboard Header
-    f.render_widget(
-        Paragraph::new("[ DASHBOARD ]")
-            .alignment(Alignment::Center)
-            .style(Style::default().fg(C_ACCENT).add_modifier(Modifier::BOLD)),
-        chunks[next_chunk_idx],
-    );
+    render_welcome_header(f, chunks[next_chunk_idx]);
     next_chunk_idx += 1;
 
     // 3. Stats & Actions (Dynamic Side-by-Side or Stacked)
     let is_narrow = area.width < 90;
-    let body_area = chunks[next_chunk_idx];
+    render_welcome_body(f, chunks[next_chunk_idx], app, is_narrow);
     next_chunk_idx += 1;
 
+    // 4. Next Step Hint
+    render_welcome_hint(f, chunks[next_chunk_idx], is_narrow);
+    next_chunk_idx += 1;
+
+    // 5. Footer
+    render_welcome_footer(f, chunks[next_chunk_idx], app);
+}
+
+fn render_welcome_header(f: &mut Frame, area: Rect) {
+    f.render_widget(
+        Paragraph::new("[ DASHBOARD ]")
+            .alignment(Alignment::Center)
+            .style(Style::default().fg(C_ACCENT).add_modifier(Modifier::BOLD)),
+        area,
+    );
+}
+
+fn render_welcome_body(f: &mut Frame, area: Rect, app: &App, is_narrow: bool) {
     let body_chunks = if is_narrow {
         Layout::default()
             .direction(Direction::Vertical)
             .constraints([Constraint::Fill(1), Constraint::Fill(1)])
-            .split(body_area)
+            .split(area)
     } else {
         // Center the content on wide screens to avoid massive boxes
         let centered_body = Layout::default()
@@ -807,7 +823,7 @@ fn render_welcome(f: &mut Frame, area: Rect, app: &App) {
                 Constraint::Length(100),
                 Constraint::Min(0),
             ])
-            .split(body_area)[1];
+            .split(area)[1];
 
         Layout::default()
             .direction(Direction::Horizontal)
@@ -836,8 +852,9 @@ fn render_welcome(f: &mut Frame, area: Rect, app: &App) {
     render_environment_info(f, left_column[1], app);
 
     render_quick_steps(f, right_area, app);
+}
 
-    // 4. Next Step Hint
+fn render_welcome_hint(f: &mut Frame, area: Rect, is_narrow: bool) {
     f.render_widget(
         Paragraph::new(if is_narrow {
             "Use [1-8, T, F, S, R, N, I, D, B] to navigate"
@@ -850,11 +867,11 @@ fn render_welcome(f: &mut Frame, area: Rect, app: &App) {
                 .fg(Color::DarkGray)
                 .add_modifier(Modifier::ITALIC),
         ),
-        chunks[next_chunk_idx],
+        area,
     );
-    next_chunk_idx += 1;
+}
 
-    // 5. Footer
+fn render_welcome_footer(f: &mut Frame, area: Rect, app: &App) {
     f.render_widget(
         Paragraph::new(format!(
             "🐱 PoshBuddy v{} · crafted with ♥ by julesklord",
@@ -862,7 +879,7 @@ fn render_welcome(f: &mut Frame, area: Rect, app: &App) {
         ))
         .alignment(Alignment::Center)
         .style(Style::default().fg(C_DIM)),
-        chunks[next_chunk_idx],
+        area,
     );
 }
 
@@ -1345,6 +1362,23 @@ fn render_installing_dep(f: &mut Frame, area: Rect, log: &[String], current: &st
 // ═══════════════════════════════════════════════════════════════════════════════
 //  SHARED HELPERS
 // ═══════════════════════════════════════════════════════════════════════════════
+
+pub fn layout_header_content(area: Rect) -> std::rc::Rc<[Rect]> {
+    Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([Constraint::Length(3), Constraint::Min(0)])
+        .split(area)
+}
+
+pub fn layout_two_columns(area: Rect, left_pct: u16, right_pct: u16) -> std::rc::Rc<[Rect]> {
+    Layout::default()
+        .direction(Direction::Horizontal)
+        .constraints([
+            Constraint::Percentage(left_pct),
+            Constraint::Percentage(right_pct),
+        ])
+        .split(area)
+}
 
 /// Renders a search bar with visible cursor when filter is active
 fn render_search_bar(f: &mut Frame, area: Rect, filter: &str, context: &str) {
