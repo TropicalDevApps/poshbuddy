@@ -111,6 +111,7 @@ impl App {
             preview_request_id: 0,
             active_preview_task: None,
             active_segments: HashSet::new(),
+            theme_preview_cache: std::collections::HashMap::new(),
         };
 
         // Initialize active config path and segments cache
@@ -240,6 +241,7 @@ mod tests {
             preview_request_id: 0,
             active_preview_task: None,
             active_segments: HashSet::new(),
+            theme_preview_cache: std::collections::HashMap::new(),
         }
     }
 
@@ -536,9 +538,13 @@ mod tests {
 
             // Use ONLY mock directory in PATH if we are mocking `where` as well
             #[cfg(unix)]
-            unsafe { env::set_var("PATH", &dir) };
+            unsafe {
+                env::set_var("PATH", &dir)
+            };
             #[cfg(windows)]
-            unsafe { env::set_var("PATH", format!("{};{}", dir.display(), original_path)) };
+            unsafe {
+                env::set_var("PATH", format!("{};{}", dir.display(), original_path))
+            };
 
             let specs = App::gather_system_specs(false);
 
@@ -622,6 +628,7 @@ mod filtering_tests {
             preview_request_id: 0,
             active_preview_task: None,
             active_segments: HashSet::new(),
+            theme_preview_cache: std::collections::HashMap::new(),
         }
     }
 
