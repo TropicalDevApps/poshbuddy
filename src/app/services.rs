@@ -1227,3 +1227,133 @@ impl App {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::app::models::{App, AppState, ActiveView};
+    use ratatui::widgets::ListState;
+    use std::collections::{HashSet, HashMap};
+    use std::fs;
+    use std::path::PathBuf;
+    use tempfile::tempdir;
+
+    fn create_dummy_app(profiles: Vec<PathBuf>) -> App {
+        App {
+            state: AppState::Welcome,
+            active_view: ActiveView::Themes,
+            themes: vec![],
+            remote_themes: vec![],
+            fonts: vec![],
+            filter: String::new(),
+            fonts_filter: String::new(),
+            themes_dir: PathBuf::new(),
+            version: String::new(),
+            list_state: ListState::default(),
+            fonts_list_state: ListState::default(),
+            segments_list_state: ListState::default(),
+            plugins: vec![],
+            segments: vec![],
+            segments_filter: String::new(),
+            spinner_tick: 0,
+            has_nerd_font: false,
+            theme_preview: String::new(),
+            detected_profiles: profiles,
+            active_config_path: None,
+            backup_manager: crate::backup::BackupManager::new(None),
+            welcome_selected_action: 0,
+            system_specs: None,
+            total_backups: 0,
+            preview_request_id: 0,
+            active_preview_task: None,
+            active_segments: HashSet::new(),
+            theme_preview_cache: HashMap::new(),
+        }
+    }
+
+    #[test]
+    fn test_find_active_config_path_no_profiles() {
+        let app = create_dummy_app(vec![]);
+        assert_eq!(app.find_active_config_path(), None);
+    }
+
+    #[test]
+    fn test_valid_unquoted() {
+        let temp_dir = tempdir().unwrap();
+        let dir = temp_dir.path();
+        let profile = dir.join("profile_unquoted.ps1");
+        let target = dir.join("target_unquoted.json");
+
+        fs::write(&target, "{}").unwrap();
+        fs::write(&profile, format!("oh-my-posh init powershell --config {} | Out-String | Invoke-Expression\n", target.display())).unwrap();
+
+        let app = create_dummy_app(vec![profile.clone()]);
+        assert_eq!(app.find_active_config_path(), Some(target.clone()));
+
+
+
+    }
+
+    #[test]
+    fn test_valid_double_quoted() {
+        let temp_dir = tempdir().unwrap();
+        let dir = temp_dir.path();
+        let profile = dir.join("profile_quoted.ps1");
+        let target = dir.join("target quoted.json");
+
+        fs::write(&target, "{}").unwrap();
+        fs::write(&profile, format!("oh-my-posh init powershell --config \"{}\" | Out-String | Invoke-Expression\n", target.display())).unwrap();
+
+        let app = create_dummy_app(vec![profile.clone()]);
+        assert_eq!(app.find_active_config_path(), Some(target.clone()));
+
+
+
+    }
+
+    #[test]
+    fn test_valid_single_quoted() {
+        let temp_dir = tempdir().unwrap();
+        let dir = temp_dir.path();
+        let profile = dir.join("profile_single.ps1");
+        let target = dir.join("target single.json");
+
+        fs::write(&target, "{}").unwrap();
+        fs::write(&profile, format!("oh-my-posh init powershell --config '{}' | Out-String | Invoke-Expression\n", target.display())).unwrap();
+
+        let app = create_dummy_app(vec![profile.clone()]);
+        assert_eq!(app.find_active_config_path(), Some(target.clone()));
+
+
+
+    }
+
+    #[test]
+    fn test_file_not_exist() {
+        let temp_dir = tempdir().unwrap();
+        let dir = temp_dir.path();
+        let profile = dir.join("profile_missing.ps1");
+        let target = dir.join("target_missing.json");
+
+        fs::write(&profile, format!("oh-my-posh init powershell --config \"{}\" | Out-String | Invoke-Expression\n", target.display())).unwrap();
+
+        let app = create_dummy_app(vec![profile.clone()]);
+        assert_eq!(app.find_active_config_path(), None);
+
+
+    }
+
+    #[test]
+    fn test_malformed_config() {
+        let temp_dir = tempdir().unwrap();
+        let dir = temp_dir.path();
+        let profile = dir.join("profile_malformed.ps1");
+
+        fs::write(&profile, "oh-my-posh init powershell --config\n").unwrap();
+
+        let app = create_dummy_app(vec![profile.clone()]);
+        assert_eq!(app.find_active_config_path(), None);
+
+
+    }
+}
