@@ -77,3 +77,14 @@ Use the arrows `[UP/DOWN]` to find a theme and press `[ENTER]` to apply it insta
 
 ---
 **Next Step**: [Installation & Prerequisites](./installation.md)
+
+## 📖 Navigation
+- **[Home](./index.md)**: Project overview and introduction.
+- **[Installation](./installation.md)**: Detailed setup instructions.
+- **[Usage](./usage.md)**: How to use PoshBuddy like a pro.
+- **[Commands](./commands.md)**: Command line reference.
+- **[Architecture](./architecture.md)**: Technical deep dive.
+- **[Development](./development.md)**: Local setup guide.
+- **[Hygiene](./hygiene.md)**: Coding standards.
+- **[Troubleshooting](./troubleshooting.md)**: Common issues.
+- **[Agent SOP](../AGENT.md)**: Operational rules for AI agents.
