@@ -1,0 +1,49 @@
+# ISSUE-001 // Evasión del flujo de restauración de terminal por errores/pánicos en run_tui
+
+**Type**: Bug
+**Severity**: Alta
+**Component**: TUI/Main
+
+---
+
+## 1. Descripción del Problema
+En el loop de ejecución principal de la TUI en Rust (`run_tui()`), múltiples llamadas de dibujado de interfaz (`terminal.draw(...)`), lectura de eventos (`event::poll(...)`) o manejo de entrada (`app.handle_input(...)`) propagan errores hacia arriba inmediatamente usando el operador '?'. Al abortar la ejecución antes del final de la función, se salta por completo la restauración de la terminal (`disable_raw_mode()?`, `LeaveAlternateScreen` y `show_cursor()`). Esto deja la consola del usuario en un estado inservible (modo raw con texto invisible y desplazamiento roto), requiriendo reiniciar la terminal.
+
+## 2. Ubicación del Código
+- **Archivo**: [main.rs](file:///K:/source/repos/poshbuddy/src/main.rs)
+- **Línea(s)**: 205-224
+
+## 3. Comportamiento Esperado vs. Comportamiento Actual
+- **Actual**: En el loop de ejecución principal de la TUI en Rust (`run_tui()`), múltiples llamadas de dibujado de interfaz (`terminal.draw(...)`), lectura de eventos (`event::poll(...)`) o manejo de entrada (`app.handle_input(...)`) propagan errores hacia arriba inmediatamente usando el operador '?'. Al abortar la ejecución antes del final de la función, se salta por completo la restauración de la terminal (`disable_raw_mode()?`, `LeaveAlternateScreen` y `show_cursor()`). Esto deja la consola del usuario en un estado inservible (modo raw con texto invisible y desplazamiento roto), requiriendo reiniciar la terminal.
+- **Esperado**: El estado de la terminal debe restablecerse bajo cualquier circunstancia (éxito, error o pánico).
+
+## 4. Pasos para Reproducir / Escenario Crítico
+1. Iniciar la TUI de PoshBuddy.
+2. Simular un fallo en el hilo del TUI o presionar una secuencia que devuelva un error en el manejador.
+3. Salir inesperadamente y observar cómo la terminal queda completamente corrupta visualmente.
+
+## 5. Propuesta de Solución
+Estructurar la ejecución del loop dentro de un bloque anónimo asíncrono y realizar el restablecimiento de la terminal en una sección garantizada de limpieza final (similar a un bloque defer o un wrapper):
+```rust
+let res = (|| async {
+    loop {
+        app.handle_messages(&mut rx, tx.clone());
+        app.spinner_tick += 1;
+        terminal.draw(|f| crate::ui::ui(f, &mut app))?;
+
+        if event::poll(Duration::from_millis(30))?
+            && let Event::Key(key) = event::read()?
+            && app.handle_input(key, tx.clone())?
+        {
+            break;
+        }
+    }
+    Ok::<(), Box<dyn Error>>(())
+})().await;
+
+// Limpieza garantizada antes de propagar el resultado
+disable_raw_mode()?;
+execute!(terminal.backend_mut(), LeaveAlternateScreen)?;\ terminal.show_cursor()?;
+
+res
+```
